@@ -1,10 +1,47 @@
 import React, {useEffect, useState, useRef} from 'react'
 import * as fabric from 'fabric';
 import { EraserBrush, ClippingGroup } from "@erase2d/fabric";
+import { v4 as uuidv4 } from 'uuid';
+import Stack from "../common/Stack";
+
+declare module 'fabric' {
+  export interface FabricObject {
+    id?: string;
+  }
+}
+
+class FabricHelper {
+  private canvas: fabric.Canvas;
+
+  constructor(canvas: fabric.Canvas) {
+    this.canvas = canvas;
+  }
+
+  public findObjectById(id: string): fabric.FabricObject | null {
+    let matchingObject= null;
+    this.canvas.getObjects().map(obj => {
+      if (obj.id === id) {
+        matchingObject = obj;
+      }
+    });
+    return matchingObject;
+  }
+
+}
+interface Layer {
+  id: string;
+  name: string;
+  objects: string[]; // array of object ids
+  visible: boolean;
+  opacity: number;
+  zIndex: number;
+  group?: string; //group id
+}
 
 const FCanvas = () => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
+    const [fabricHelper, setFabricHelper] = useState<FabricHelper | null>(null);
     const [drawingModeOn, setDrawingModeOn] = useState<boolean>(true);
     const [eraseModeOn, setEraseModeOn] = useState<boolean>(false);
 
@@ -12,6 +49,9 @@ const FCanvas = () => {
     const drawingColorRef = useRef<HTMLButtonElement | null>(null);
     const eraseButton = useRef<HTMLButtonElement | null>(null);
     const clearRef = useRef<HTMLButtonElement | null>(null);
+
+    const undoStack = useRef<Stack<fabric.Object | null>>(new Stack());
+    const redoStack = useRef<Stack<fabric.Object | null>>(new Stack());
 
     //Brush parameters
     const [brushType, setBrushType] = useState<string>('pencil');
@@ -30,6 +70,156 @@ const FCanvas = () => {
     const texturePatternBrush = useRef<fabric.PatternBrush | null>(null);
     const eraserBrush = useRef<EraserBrush | null>(null);
 
+    //layer information
+    const [layers, setLayers] = useState<Layer[]>([
+      {
+        id: 'base',
+        name: 'Base Layer',
+        objects: [],
+        visible: true,
+        opacity: 1,
+        zIndex: 0
+      }
+    ]);
+    const [activeLayer, setActiveLayer] = useState<Layer | null>(layers[0]);
+
+    const createLayerGroup = (objects : fabric.Object[], opacity : number) => {
+      if(!canvas) return;
+      const group = new fabric.Group(objects, {
+        opacity: opacity,
+        evented: true,
+        selectable: true
+      });
+      return group
+    }
+
+    const addObjectToLayer = (object : fabric.FabricObject , layerId : string) => {
+      if (!canvas || !fabricHelper) return;
+
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer) return;
+
+      layer.objects.push(object.id as string);
+      canvas.add(object);
+    }
+
+    const removeObjectFromLayer = (object : fabric.Object, layerId: string) => {
+      if (!canvas || !fabricHelper) return;
+
+      const layer = layers.find(l => l.id === layerId);
+      if (!layer) return;
+
+      layer.objects = layer.objects.filter(obj => obj !== object.id);
+      canvas.remove(object);
+    }
+
+    const makeObjectsGroup = (layerId : string) => {
+      const layer = layers.find(l => l.id === layerId);
+      if(!layer || !canvas) return;
+
+      let groupObjects = layer.objects.map(id => fabricHelper!.findObjectById(id)).filter(obj => obj !== null) as fabric.FabricObject[];
+
+      let newGroup = new fabric.Group(groupObjects);
+      (newGroup as any).id = uuidv4();
+      newGroup.set({
+        opacity: layer.opacity,
+        visible: layer.visible,
+        evented: true,
+        selectable: true
+      });
+      groupObjects.forEach(obj => canvas?.remove(obj));
+      canvas.add(newGroup);
+      setLayers(layers.map(l => l.id === layerId ? {
+        ...l,
+        objects: [typeof newGroup.id === 'string' ? newGroup.id : ''],
+        group: typeof newGroup.id === 'string' ? newGroup.id : undefined
+      } : l));
+
+    }
+
+
+    const handleObjectAdded = (options: { target: fabric.FabricObject }) => {
+      const addedObject = options.target;
+      if (!addedObject || !canvas || !activeLayer) return;
+
+      console.log("handleObject called");
+      // Add the new object to the active layer
+      const objectId = uuidv4();
+      addedObject.id = objectId; // Assign a unique ID to the object
+      addObjectToLayer(addedObject, activeLayer.id);
+
+      if(activeLayer.group)
+      {
+        const group = fabricHelper?.findObjectById(activeLayer.group) as fabric.Group;
+        if(group)
+        {
+          canvas.remove(addedObject);
+          const objects = group.getObjects();
+          objects.push(addedObject);
+
+          const newGroup = new fabric.Group(objects);
+          newGroup.id = uuidv4();
+          canvas.add(newGroup);
+          console.log("New group created:", newGroup);
+        }
+      
+      }
+      else{
+        const newGroup = createLayerGroup([addedObject], activeLayer.opacity);
+        if(newGroup)
+        {
+          canvas.add(newGroup);
+          console.log("New group created:", newGroup);
+        }
+      }
+    }
+
+    const updateLayerVisibilityOpacity = (layerID : string, visible: boolean) => 
+    {
+      if(!canvas ) return;
+
+      const layer = layers.find(l => l.id === layerID )
+      if(!layer || !layer.group) return;
+
+      const updatedGroup = fabricHelper!.findObjectById(layer.group! ) as fabric.Group;
+      updatedGroup.set('visible', visible);
+      updatedGroup.set('opacity', layer.opacity);
+      canvas.renderAll();
+
+    }
+
+    const addLayer = () => {
+      const newLayer: Layer = {
+        id: `layer-${layers.length + 1}`,
+        name: `Layer ${layers.length + 1}`,
+        objects: [],
+        visible: true,
+        opacity: 1,
+        zIndex: layers.length
+      };
+      setLayers([...layers, newLayer]);
+      setActiveLayer(newLayer);
+    }
+
+    //TODO: update the visual representation of layers
+    const removeLayer = (layerID: string) => {
+      const layerToRemove = layers.find(l => l.id === layerID);
+      if (!layerToRemove || !canvas || !fabricHelper) return;
+
+      // Remove the layer from the canvas
+      layerToRemove.objects.forEach(obj => {
+        const objFound = fabricHelper.findObjectById(obj);
+        if (objFound) {
+          canvas.remove(objFound);
+        }
+      });
+
+      // Update the layers state
+      setLayers(layers.filter(l => l.id !== layerID));
+      setActiveLayer(layers[0]);
+    }
+
+    // Clear canvas
     const handleClearCanvas = () => {
       console.log("Clear button clicked");
       if (!canvas) return;
@@ -143,9 +333,10 @@ const FCanvas = () => {
     }
   }
 
+  //initialization set up for canvs
      useEffect(() => {
-      console.log("creatting new canvas");
-    // create Fabric canvas once
+      console.log("creating new canvas");
+   
     const canvas = new fabric.Canvas(canvasRef.current!, {
       height: window.innerHeight,
       width: window.innerWidth,
@@ -160,6 +351,9 @@ const FCanvas = () => {
       obj.erasable = true;
       }
     });
+
+    const fabricHelper = new FabricHelper(canvas);
+    setFabricHelper(fabricHelper);
 
     initializePatternBrushes();
 
@@ -253,11 +447,15 @@ const FCanvas = () => {
     }
   }
   
+
   useEffect(() => {
   if (!canvas) return;
 
+  canvas.on('object:added', handleObjectAdded);
+    //TODO: add objects on object added
     canvas.getObjects().forEach((obj) => {
-    obj.erasable = true;
+      obj.erasable = true;
+
   });
 
    updateBrush();
@@ -282,7 +480,8 @@ const FCanvas = () => {
   }
 
   const handleUndo = () => {
-    console.log("undo action")
+    console.log("undo action");
+
   }
 
   const handleRedo = () => {
@@ -293,16 +492,18 @@ const FCanvas = () => {
     <>
     <div className = "flex-col justify-center bg-yellow-200 w-full max-h-32 rounded">
       <div className = "flex gap-2">
+        <div className = "flex flex-col ">
          <button
           ref={drawingModeRef}
           onClick={handleToggleDrawing}
-          className={`text-white px-4 py-2 rounded ${
-            drawingModeOn ? 'bg-green-600 hover:bg-green-700' : 'bg-red-400 hover:bg-red-500'
+          className={`text-white px-4 py-2 h-12 rounded ${
+            drawingModeOn ? 'bg-green-200 hover:bg-green-300' : 'bg-yellow-200 hover:bg-orange-200'
           } transition-colors duration-300`}
         >
           {drawingModeOn ? 'Drawing Mode: ON' : 'Drawing Mode: OFF'}
         </button>
-        <button ref={clearRef} onClick={handleClearCanvas} className="bg-red-500 text-white px-4 py-2 rounded ml-2">Clear Canvas</button>
+        <button ref={clearRef} onClick={handleClearCanvas} className="bg-red-200  text-white px-4 py-2 h-12 rounded ml-2">Clear Canvas</button>
+        </div>
         <div className = "flex flex-col ">
           <label className = "flex flex-col items-center ml-2 bg-gray-500 ">
             <span className = "text-center w-full mb-2">BrushType</span>
@@ -364,6 +565,83 @@ const FCanvas = () => {
           />
         </label>
       </div>
+
+      <div className = "fixed right-0 top-32 bg-gray-500  p-4 rounded-r-lg shadow-lg"> 
+          <div className="flex flex-col gap-2">
+            <button onClick={() => addLayer()} 
+            className="bg-blue-500 hover:bg-blue-600 text-white p-2 rounded flex items-center justify-center">
+              <span className="text-xl">+</span>
+            </button>
+            <div className = "space-y-2 min-w-[200px]">
+              {layers.map((layer) => {
+               return  <div 
+                  key = {layer.id}
+                  className = {
+                    `flex items-center gap-2 p-2 rounded cursor-pointer ${
+                      activeLayer!.id === layer.id ? 'bg-blue-200' : 'bg-gray-300'}`
+                  }
+                  onClick={() => setActiveLayer(layer)}>
+                  <div className = "flex items-center gap-2 flex-1">
+                    <input type = "checkbox" checked={layer.visible} 
+                    onChange = {(e) => {
+                      const selectedLayer = layers.map (l => l.id === layer.id ? {...l, visible: e.target.checked} : l);
+                      setLayers(selectedLayer);
+                      updateLayerVisibilityOpacity(layer.id, e.target.checked);
+                    }}
+                  className="w-4 h-4"/>
+                   <span className="text-white">{layer.name}</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={layer.opacity * 100}
+                  onChange={(e) => {
+                    const selectedLayers = layers.map(l => l.id === layer.id 
+                      ? {...l, opacity: Number(e.target.value) / 100} : l);
+                    setLayers(selectedLayers);
+                    updateLayerVisibilityOpacity(layer.id, layer.visible);
+                  }}
+                  className="w-20"
+                  />
+                    {layers.length > 1 && (
+            <button
+              onClick={() => {
+                const newLayers = layers.filter(l => l.id !== layer.id);
+                setLayers(newLayers);
+                if (activeLayer!.id === layer.id) {
+                  setActiveLayer(newLayers[0]);
+                }
+              }}
+              className="text-red-500 hover:text-red-400"
+            >
+              ×
+            </button>
+          )}
+              </div>
+            })}
+          </div>
+        </div>
+        </div>
+          
+          <div className = "flex gap-2">
+              <button
+                onClick={() => {
+                  handleUndo()
+                }}
+                className="bg-purple-200 hover:bg-purple-300 text-white p-2 rounded h-12"
+              >
+                Undo
+              </button>
+               <button
+                onClick={() => {
+                  handleRedo()
+                }}
+                className="bg-blue-200 hover:bg-blue-300 text-white p-2 rounded h-12"
+              >
+                Redo
+              </button>
+          </div>
       </div>
 
       <h1>Fabric.js on React - fabric.Canvas('...')</h1>
