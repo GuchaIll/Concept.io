@@ -7,6 +7,8 @@ import { LayerPanel } from './Controls/Layer/LayerPanel';
 import { ColorPicker } from './Controls/Selector/ColorPicker';
 import ToolBar from './Panel/ToolBar';
 import { EyeDropper } from '../hooks/EyeDropper';
+import {useShape} from '../hooks/Shape';
+import {useText} from '../hooks/Text';
 
 
 
@@ -28,6 +30,9 @@ const FCanvas = () => {
     const historyProps = useHistory(canvas);
     const layerProps = useLayers(canvas);
     const eyeDropperProps = EyeDropper(canvas);
+    const shapeProps = useShape(canvas);
+    const textProps = useText(canvas);
+  
 
     useEffect(() => {
       if (!canvasRef.current) return;
@@ -119,6 +124,13 @@ const FCanvas = () => {
         handleErase={brushProps.handleErase}
         isEyedropperActive={eyeDropperProps.isEyeDropperActive}
         handleEyedropperTool={eyeDropperProps.handleEyeDropperTool}
+        setShapeType={shapeProps.setShapeType}
+        setShapeProps={shapeProps.setShapeProps}
+        setTextProps={textProps.setTextProps}
+        shapeType={shapeProps.shapeType}
+        shapeProps={shapeProps.shapeProps}
+        textProps={textProps.textProps}
+      
       />
 
       <LayerPanel {...layerProps} />
