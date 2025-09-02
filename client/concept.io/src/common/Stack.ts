@@ -36,6 +36,10 @@ class Stack<T> implements IStack<T> {
     isEmpty(): boolean {
         return this.size() === 0;
     }
+
+    clear(): void {
+        this.storage = [];
+    }
 }
 
 export default Stack;

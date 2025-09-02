@@ -18,8 +18,9 @@
     "install:server": "cd server && npm install"
   },
   "dependencies": {
-   
     "concurrently": "^8.2.1"
-    
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
   }
 }
