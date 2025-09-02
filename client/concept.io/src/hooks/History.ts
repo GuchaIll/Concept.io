@@ -15,7 +15,7 @@ export const useHistory = (canvas: fabric.Canvas | null) => {
     if (undoStack.current.isEmpty() || !canvas) return;
     const lastObject = undoStack.current.pop();
     if (lastObject) {
-      redoStack.current.push(las tObject);
+      redoStack.current.push(lastObject);
       canvas.remove(lastObject);
       canvas.renderAll();
     }
