@@ -13,7 +13,8 @@ import {
   Redo,
   Trash2,
   Pipette,
-  Type
+  Type,
+  ToggleLeft
 } from 'lucide-react';
 import {ColorToString, hexToRGBA} from '../../hooks/Color'
 import type { RGBAColor } from '../../hooks/Color';
@@ -46,6 +47,13 @@ interface ToolBarProps {
   setTextProps: (props: TextProperties) => void;
   shapeProps: ShapeProperties;
   setShapeProps: (props: ShapeProperties) => void;
+  fillShape: boolean;
+  setFillShape: (fill: boolean) => void;
+  createSelectedShape: (selectedShapeType: ShapeType) => void;
+  activateTextTool: () => void;
+  deactivateTextTool: () => void;  
+  deactivateShapeTool: () => void;
+  activateShapeTool: () => void;  
 }
 
 
@@ -72,23 +80,72 @@ const ToolBar: React.FC<ToolBarProps> = ({
   textProps,
   setTextProps,
   shapeProps,
-  setShapeProps
+  setShapeProps,
+  fillShape,
+  setFillShape,
+  createSelectedShape,
+  activateTextTool,
+  deactivateTextTool,
+  deactivateShapeTool,
+  activateShapeTool
 
 }) => {
   const tools = [
-    { id: 'Pencil', icon: <Pencil size={20} />, label: 'Pencil' },
-    { id: 'Circle', icon: <Circle size={20} />, label: 'Circle Brush' },
-    { id: 'Spray', icon: <SprayCan size={20} />, label: 'Spray' },
-    { id: 'hline', icon: <GripHorizontal size={20} />, label: 'Horizontal Lines' },
-    { id: 'vline', icon: <Minus size={20} />, label: 'Vertical Lines' },
-    { id: 'square', icon: <Square size={20} />, label: 'Square Pattern' },
-    { id: 'diamond', icon: <Diamond size={20} />, label: 'Diamond Pattern' },
-    { id: 'texture', icon: <Image size={20} />, label: 'Texture Pattern' },
+    { id: 'Pencil', icon: <Pencil size={20} />, label: 'Pencil', hasSubmenu: false},
+    { id: 'Circle', icon: <Circle size={20} />, label: 'Circle Brush', hasSubmenu: false },
+    { id: 'Spray', icon: <SprayCan size={20} />, label: 'Spray', hasSubmenu: false },
+    { id: 'hline', icon: <GripHorizontal size={20} />, label: 'Horizontal Lines', hasSubmenu: false },
+    { id: 'vline', icon: <Minus size={20} />, label: 'Vertical Lines', hasSubmenu: false },
+    { id: 'square', icon: <Square size={20} />, label: 'Square Pattern', hasSubmenu: false },
+    { id: 'diamond', icon: <Diamond size={20} />, label: 'Diamond Pattern', hasSubmenu: false },
+    { id: 'texture', icon: <Image size={20} />, label: 'Texture Pattern', hasSubmenu: false },
     { id: 'shape', icon: <Square size={20} />, label: 'Shapes', hasSubmenu: true },
     { id: 'text', icon: <Type size={20} />, label: 'Text', hasSubmenu: true },
   ];
 
   const [activeSubMenu, setActiveSubMenu] = React.useState<'none' | 'shape' | 'text'>('none');
+
+
+   const handleToolClick = (tool: typeof tools[0]) => {
+    setBrushType(tool.id);
+    
+    if (tool.hasSubmenu) {
+      if (activeSubMenu === tool.id) {
+        // Turning off the current submenu
+         setActiveSubMenu('none');
+        if (tool.id === 'text') {
+           deactivateTextTool();
+        }
+        if(tool.id === 'shape'){
+          deactivateShapeTool();
+        }
+      } else {
+        // Switching to a new submenu
+        if (activeSubMenu !== "none" && activeSubMenu === 'text') {
+          deactivateTextTool();
+        }
+        if(activeSubMenu !== "none" && activeSubMenu === 'shape'){
+          deactivateShapeTool();
+        }
+        setActiveSubMenu(tool.id as 'shape' | 'text');
+        if (tool.id === 'text') {
+          activateTextTool();
+        }
+        if(tool.id === 'shape'){
+          activateShapeTool();
+        }
+      }
+    } else {
+      // Clicking a regular tool
+      if (activeSubMenu === 'text') {
+        deactivateTextTool();
+      }
+      if(activeSubMenu === 'shape'){
+        deactivateShapeTool();
+      }
+      setActiveSubMenu('none');
+    }
+  };
 
   return (
     <div className="fixed left-4 top-20 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800 z-50">
@@ -98,14 +155,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
           <div key={tool.id} className="relative">
           <button
             key={tool.id}
-            onClick={() => {
-              setBrushType(tool.id);
-              if (tool.hasSubmenu) {
-                setActiveSubMenu(activeSubMenu === tool.id ? 'none' : tool.id as 'shape' | 'text');
-              } else {
-                setActiveSubMenu('none');
-              }
-            }}
+            onClick={() => handleToolClick(tool)}
             className={`p-2 rounded-lg flex flex-col items-center justify-center gap-1 transition-colors
               ${brushType === tool.id 
                 ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900 dark:text-indigo-300' 
@@ -123,6 +173,9 @@ const ToolBar: React.FC<ToolBarProps> = ({
         setShapeType={setShapeType}
         shapeProps={shapeProps}
         setShapeProps={setShapeProps}
+        fillShape={fillShape}
+        setFillShape={setFillShape}
+        createSelectedShape={createSelectedShape}
       />
     )}
     
@@ -130,6 +183,7 @@ const ToolBar: React.FC<ToolBarProps> = ({
       <TextSubmenu
         textProps={textProps}
         setTextProps={setTextProps}
+        
       />
     )}
           </div>
