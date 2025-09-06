@@ -130,7 +130,13 @@ const FCanvas = () => {
         shapeType={shapeProps.shapeType}
         shapeProps={shapeProps.shapeProps}
         textProps={textProps.textProps}
-      
+        fillShape={shapeProps.fillShape}
+        setFillShape={shapeProps.setFillShape}
+        createSelectedShape={shapeProps.createSelectedShape}
+        activateTextTool={textProps.activateTextTool}
+        deactivateTextTool={textProps.deactivateTextTool}
+        deactivateShapeTool={shapeProps.deactivateShapeTool}
+        activateShapeTool={shapeProps.activateShapeTool}
       />
 
       <LayerPanel {...layerProps} />

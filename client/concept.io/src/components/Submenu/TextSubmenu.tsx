@@ -13,6 +13,7 @@ import {
 export const TextSubmenu: React.FC<{
   textProps: TextProperties;
   setTextProps: (props: TextProperties) => void;
+
 }> = ({ textProps, setTextProps }) => {
   return (
     <div className="absolute left-full ml-2 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800">
