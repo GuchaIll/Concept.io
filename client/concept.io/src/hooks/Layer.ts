@@ -1,42 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import * as fabric from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
-import { FabricHelper } from './FabricHelper';
+import { Layer, BlendMode } from './types/Layer';
 
-export const blendModes = {
-  NORMAL: 'normal',
-  MULTIPLY: 'multiply',
-  SCREEN: 'screen',
-  OVERLAY: 'overlay',
-  DARKEN: 'darken',
-  LIGHTEN: 'lighten',
-  COLOR_DODGE: 'color-dodge',
-  COLOR_BURN: 'color-burn',
-  HARD_LIGHT: 'hard-light',
-  SOFT_LIGHT: 'soft-light',
-  DIFFERENCE: 'difference',
-  EXCLUSION: 'exclusion',
-  HSL_HUE: 'hsl-hue',
-  HSL_SATURATION: 'hsl-saturation',
-  HSL_LUMINOSITY: 'hsl-luminosity',
-} as const;
-
-export type BlendMode = typeof blendModes[keyof typeof blendModes];
-
-
-export interface Layer {
-  id: string;
-  name: string;
-  objects: string[];
-  visible: boolean;
-  opacity: number;
-  zIndex: number;
-  group?: string;
-  locked?: boolean;
-  blendMode?: BlendMode;
+interface ObjectWithLayerId extends fabric.Object {
+  layerId?: string;
+  baseOpacity?: number;
 }
 
-export const useLayers = (canvas: fabric.Canvas | null) => {
+export function useLayers(canvas: fabric.Canvas | null) {
   const [layers, setLayers] = useState<Layer[]>([{
     id: 'base',
     name: 'Base Layer',
@@ -47,97 +19,108 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     locked: false
   }]);
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
-  const [isUpdating, setIsUpdating] = useState<boolean>(false);
 
-  const getLayerIndexByID = (layerID: string) => {
-    return layers.findIndex(layer => layer.id === layerID);
+  const getLayerIndexByID = (layerID: string): number => 
+    layers.findIndex(layer => layer.id === layerID);
+
+  const createLayerGroup = (objects: fabric.Object[], opacity: number): fabric.Group | undefined => {
+    if (!canvas) return;
+    return new fabric.Group(objects, {
+      opacity,
+      evented: true,
+      selectable: true
+    });
   };
 
-  const createLayerGroup = (objects : fabric.Object[], opacity : number) => {
-        if(!canvas) return;
-        const group = new fabric.Group(objects, {
-          opacity: opacity,
-          evented: true,
-          selectable: true
-        });
-        return group
+  // Layer management operations
+  const layerOperations = {
+    addLayer: (): void => {
+      const newLayer: Layer = {
+        id: `layer-${layers.length + 1}`,
+        name: `Layer ${layers.length + 1}`,
+        objects: [],
+        visible: true,
+        opacity: 1,
+        zIndex: layers.length,
+        locked: false,
+        blendMode: 'normal'
+      };
+      setLayers(prev => [...prev, newLayer]);
+      setActiveLayer(newLayer);
+    },
+
+    removeLayer: (layerId: string): void => {
+      if (layers.length <= 1) return;
+      setLayers(prev => prev.filter(l => l.id !== layerId));
+      if (activeLayer.id === layerId) {
+        setActiveLayer(layers[0]);
       }
+    },
 
-  const addLayer = () => {
-    const newLayer: Layer = {
-      id: `layer-${layers.length + 1}`,
-      name: `Layer ${layers.length + 1}`,
-      objects: [],
-      visible: true,
-      opacity: 1,
-      zIndex: layers.length,
-      locked: false,
-      blendMode: 'normal'
-    };
-    setLayers([...layers, newLayer]);
-    setActiveLayer(newLayer);
-  };
-  
+    updateLayerVisibility: (layerId: string, visible: boolean): void => {
+      if (!canvas) return;
+      setLayers(prev => prev.map(layer => 
+        layer.id === layerId ? { ...layer, visible } : layer
+      ));
+    },
 
-  const removeLayer = (layerId: string) => {
-    if (layers.length <= 1) return;
-    setLayers(layers.filter(l => l.id !== layerId));
-    if (activeLayer.id === layerId) {
-      setActiveLayer(layers[0]);
+    updateLayerOpacity: (layerId: string, opacity: number): void => {
+      if (!canvas) return;
+      setLayers(prev => prev.map(layer => 
+        layer.id === layerId ? { ...layer, opacity } : layer
+      ));
+
+      const objects = canvas.getObjects().filter(
+        obj => (obj as ObjectWithLayerId).layerId === layerId
+      ) as ObjectWithLayerId[];
+
+      objects.forEach(obj => {
+        if (obj.baseOpacity === undefined) {
+          obj.baseOpacity = obj.opacity || 1;
+        }
+        obj.opacity = obj.baseOpacity * opacity;
+      });
+
+      canvas.renderAll();
+    },
+
+    toggleLayerLock: (layerId: string): void => {
+      setLayers(prev => prev.map(layer =>
+        layer.id === layerId ? { ...layer, locked: !layer.locked } : layer
+      ));
     }
   };
 
-  const updateLayerVisibility = (layerId: string, visible: boolean) => {
-    if (!canvas) return;
-    setLayers(layers.map(layer => 
-      layer.id === layerId 
-        ? { ...layer, visible } 
-        : layer
-    ));
+  // Object operations
+  const objectOperations = {
+    addObjectToLayer: (object: fabric.Object, layerID: string): void => {
+      if (!canvas) return;
+      const layer = layers[getLayerIndexByID(layerID)];
+      if (!layer) return;
+
+      (object as ObjectWithLayerId).layerId = layerID;
+      const objectId = (object as any).id || uuidv4();
+      (object as any).id = objectId;
+
+      layer.objects.push(objectId);
+      canvas.add(object);
+    },
+
+    removeObjectFromLayer: (object: fabric.Object, layerID: string): void => {
+      if (!canvas) return;
+      const layer = layers[getLayerIndexByID(layerID)];
+      if (!layer) return;
+
+      layer.objects = layer.objects.filter(obj => obj !== (object as any).id);
+      canvas.remove(object);
+    }
   };
 
-  const updateLayerOpacity = (layerId: string, opacity: number) => {
-    if (!canvas) return;
-    setLayers(layers.map(layer => 
-      layer.id === layerId 
-        ? { ...layer, opacity } 
-        : layer
-    ));
-    const objects = canvas.getObjects().filter(obj => obj.layerId === layerId);
-    if(!objects) return;
-
-    objects.forEach(obj => {
-       if (obj.baseOpacity === undefined) {
-          obj.baseOpacity = obj.opacity; // keep the original once
-      }
-      obj.opacity = obj.baseOpacity * opacity;
-    });
-
-    canvas.renderAll();
-  };
-
-    const addObjectToLayer = (object : fabric.FabricObject , layerID : string) => {
-            if (!canvas ) return;
-            const layer = layers[getLayerIndexByID(layerID)];
-            if (!layer) return;
-      
-            layer.objects.push(object.id as string);
-            canvas.add(object);
-        }
-
-    const removeObjectFromLayer = (object : fabric.Object, layerID: string) => {
-        if (!canvas ) return;
-        const layer = layers[getLayerIndexByID(layerID)];
-        if (!layer) return;
-      
-        layer.objects = layer.objects.filter(obj => obj !== object.id);
-        canvas.remove(object);
-        }
-    
-    const groupSelectedObjects = () => {
+  // Group operations
+  const groupOperations = {
+    groupSelectedObjects: (): void => {
       const active = canvas?.getActiveObjects();
-      if(active && active.length > 1)
-      {
+      if (active && active.length > 1) {
         const group = new fabric.Group(active);
         canvas?.discardActiveObject();
         active.forEach(obj => canvas?.remove(obj));
@@ -145,131 +128,91 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         canvas?.setActiveObject(group);
         canvas?.requestRenderAll();
       }
-    }
+    },
 
-    const ungroupSelectedObjects = () => {
+    ungroupSelectedObjects: (): void => {
       const active = canvas?.getActiveObject();
-      if(active && active.type === 'group')
-      {
+      if (active?.type === 'group') {
         const group = active as fabric.Group;
         canvas?.remove(group);
         group._objects.forEach(obj => canvas?.add(obj));
-        canvas?.setActiveObject(group._objects[0]);
+        if (group._objects.length > 0) {
+          canvas?.setActiveObject(group._objects[0]);
+        }
         canvas?.requestRenderAll();
       }
     }
+  };
 
-    const bringForward = () => {
+  // Z-index operations
+  const zIndexOperations = {
+    bringForward: (): void => {
       const active = canvas?.getActiveObject();
-      if(active)
-      {
+      if (active) {
         canvas?.bringObjectForward(active);
         canvas?.requestRenderAll();
       }
-    }
+    },
 
-    const bringObjectBackward = () => {
+    bringObjectBackward: (): void => {
       const active = canvas?.getActiveObject();
-      if(active)
-      {
+      if (active) {
         canvas?.sendObjectBackwards(active);
         canvas?.requestRenderAll();
       }
-    }
+    },
 
-    const moveLayerUp = (layerId : string) =>
-    {
-      setLayers(prev =>
-      {
+    moveLayerUp: (layerId: string): void => {
+      setLayers(prev => {
         const index = prev.findIndex(l => l.id === layerId);
-        if(index === -1 || index  === prev.length -1) return prev;
+        if (index === -1 || index === prev.length - 1) return prev;
+
         const newLayers = [...prev];
         const [layer] = newLayers.splice(index, 1);
         newLayers.splice(index + 1, 0, layer);
-        
-        // Update z-index values for affected layers
-        newLayers.forEach((l, i) => {
-          l.zIndex = newLayers.length - 1 - i;
-        });
-        
-        return newLayers;
-      });
-    }
 
-    const moveLayerDown = (layerId : string) =>
-    {
-      setLayers(prev => 
-      {
+        return newLayers.map((l, i) => ({ ...l, zIndex: newLayers.length - 1 - i }));
+      });
+    },
+
+    moveLayerDown: (layerId: string): void => {
+      setLayers(prev => {
         const index = prev.findIndex(l => l.id === layerId);
-        if(index <= 0) return prev;
+        if (index <= 0) return prev;
+
         const newLayers = [...prev];
         const [layer] = newLayers.splice(index, 1);
         newLayers.splice(index - 1, 0, layer);
-        
-        // Update z-index values for affected layers
-        newLayers.forEach((l, i) => {
-          l.zIndex = newLayers.length - 1 - i;
-        });
-        
-        return newLayers;
+
+        return newLayers.map((l, i) => ({ ...l, zIndex: newLayers.length - 1 - i }));
       });
     }
+  };
 
-    const toggleLayerLock = (layerId : string) =>
-    {
-      setLayers(
-        prev => prev.map(layer =>
-          layer.id === layerId ? { ...layer, locked: !layer.locked } : layer
-        )
-      )
-    }
-  
-
-  const updateLayers = (e : any) => {
-    console.log('Object added to canvas:', e);
+  const updateLayers = (e: fabric.IEvent): void => {
     const object = e.target;
-    if (!object) {
-      console.log('No object found in event');
-      return;
-    }
-    
-    // Generate a unique ID for the object and assign layer ID
+    if (!object) return;
+
     const objectId = uuidv4();
-    object.id = objectId;
-    object.layerId = activeLayer.id;
+    (object as any).id = objectId;
+    (object as ObjectWithLayerId).layerId = activeLayer.id;
 
-    // Add the object ID to the active layer's objects array
-    setLayers(prevLayers => 
-      prevLayers.map(layer => 
-        layer.id === activeLayer.id 
-          ? { ...layer, objects: [...layer.objects, objectId] }
-          : layer
-      )
-    );
-    
-    console.log('Updated object with ID:', objectId, 'in layer:', activeLayer.id);
-  }
-
+    setLayers(prevLayers => prevLayers.map(layer => 
+      layer.id === activeLayer.id 
+        ? { ...layer, objects: [...layer.objects, objectId] }
+        : layer
+    ));
+  };
 
   return {
-    
     layers,
     activeLayer,
     setActiveLayer,
-    addLayer,
-    removeLayer,
-    updateLayerVisibility,
-    updateLayerOpacity,
-    addObjectToLayer,
-    removeObjectFromLayer,
     createLayerGroup,
-    groupSelectedObjects,
-    ungroupSelectedObjects,
-    bringForward,
-    bringObjectBackward,
-    moveLayerUp,
-    moveLayerDown,
-    toggleLayerLock,
-    updateLayers
+    updateLayers,
+    ...layerOperations,
+    ...objectOperations,
+    ...groupOperations,
+    ...zIndexOperations
   };
-};
+}

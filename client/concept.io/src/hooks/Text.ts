@@ -1,6 +1,5 @@
-import { useEffect, useState, useCallback} from 'react';
+import { useEffect, useState } from 'react';
 import * as fabric from 'fabric';
-import { FabricHelper } from './FabricHelper';
 
 export type TextAlign = 'left' | 'center' | 'right';
 
@@ -13,20 +12,35 @@ export interface TextProperties {
   underline: boolean;
 }
 
-const deleteObject = (eventData: fabric.TPointerEvent, transform: fabric.Transform) => {
-    const target = transform.target;
-    const canvas = target.canvas;
-    canvas?.remove(target);
-    canvas?.requestRenderAll();
-    return true;
+const DEFAULT_TEXT_PROPERTIES: TextProperties = {
+  fontSize: 16,
+  fontFamily: 'Arial',
+  align: 'left',
+  bold: false,
+  italic: false,
+  underline: false,
 };
 
-const addCustomControls = (newTextBox : fabric.IText) => {
-  if (!newTextBox.controls) {
-    newTextBox.controls = {...fabric.IText.prototype.controls};
+/**
+ * Handler for deleting text objects via control points
+ */
+function deleteObject(eventData: fabric.TPointerEvent, transform: fabric.Transform): boolean {
+  const target = transform.target;
+  const canvas = target.canvas;
+  canvas?.remove(target);
+  canvas?.requestRenderAll();
+  return true;
+}
+
+/**
+ * Adds custom control points to text objects
+ */
+function addCustomControls(textBox: fabric.IText): void {
+  if (!textBox.controls) {
+    textBox.controls = {...fabric.IText.prototype.controls};
   }
 
-  newTextBox.controls.deleteControl = new fabric.Control({
+  textBox.controls.deleteControl = new fabric.Control({
     x: 0.5,
     y: -0.5,
     offsetY: -16,
@@ -38,23 +52,31 @@ const addCustomControls = (newTextBox : fabric.IText) => {
     sizeY: 24,
     touchSizeX: 24,
     touchSizeY: 24,
-    
   });
 
-  newTextBox.setControlsVisibility({
+  textBox.setControlsVisibility({
     deleteControl: true,
   });
 
-  newTextBox.setCoords();
-  newTextBox.canvas?.requestRenderAll();
-};
+  textBox.setCoords();
+  textBox.canvas?.requestRenderAll();
+}
 
-const renderDeleteControl = (ctx: CanvasRenderingContext2D, left: number, top: number, styleOverride: any, fabricObject: fabric.Object) => {
+/**
+ * Renders the delete control button
+ */
+function renderDeleteControl(
+  ctx: CanvasRenderingContext2D, 
+  left: number, 
+  top: number, 
+  styleOverride: any, 
+  fabricObject: fabric.Object
+): void {
   const size = 16;
   ctx.save();
   ctx.translate(left, top);
   ctx.rotate(fabric.util.degreesToRadians(fabricObject.angle || 0));
-  
+
   // Draw circle background
   ctx.beginPath();
   ctx.arc(0, 0, size/2, 0, 2 * Math.PI);
@@ -62,7 +84,7 @@ const renderDeleteControl = (ctx: CanvasRenderingContext2D, left: number, top: n
   ctx.fill();
   ctx.strokeStyle = '#FF0000';
   ctx.stroke();
-  
+
   // Draw X
   ctx.beginPath();
   ctx.lineWidth = 2;
@@ -72,26 +94,19 @@ const renderDeleteControl = (ctx: CanvasRenderingContext2D, left: number, top: n
   ctx.moveTo(size/4, -size/4);
   ctx.lineTo(-size/4, size/4);
   ctx.stroke();
-  
+
   ctx.restore();
-};
+}
 
-export const useText = (canvas: fabric.Canvas | null) => {
-  
-  const [textProps, setTextProps] = useState<TextProperties>({
-    fontSize: 16,
-    fontFamily: 'Arial',
-    align: 'left',
-    bold: false,
-    italic: false,
-    underline: false,
-  });
-
+export function useText(canvas: fabric.Canvas | null) {
+  const [textProps, setTextProps] = useState<TextProperties>(DEFAULT_TEXT_PROPERTIES);
   const [selectedTextObject, setSelectedTextObject] = useState<fabric.IText | null>(null);
   const [textToolActive, setTextToolActive] = useState<boolean>(false);
 
+  /**
+   * Creates a new text box at the pointer position
+   */
   const addTextBox = (options: fabric.TEvent<MouseEvent | TouchEvent>): void => {
-    console.log("Adding text box at:", textToolActive, canvas);
     if (!textToolActive || !canvas) return;
 
     // Check if we clicked on an existing text object
@@ -129,113 +144,106 @@ export const useText = (canvas: fabric.Canvas | null) => {
       padding: 10,
       activeOnScale: true,
       fill: '#999999', // Light gray for placeholder text
-      
     });
 
     textBox.on('editing:entered', () => {
-      
-        textBox.text = '';
-        textBox.fill = canvas.freeDrawingBrush?.color || '#000000';
-        canvas.requestRenderAll();
-        
+      textBox.text = '';
+      textBox.fill = canvas.freeDrawingBrush?.color || '#000000';
+      canvas.requestRenderAll();
     });
-
 
     addCustomControls(textBox);
     canvas.add(textBox);
     canvas.setActiveObject(textBox);
-    // Enter edit mode immediately
     textBox.enterEditing();
     canvas.renderAll();
-  }
-
-   const activateTextTool = () => {
-    if (!canvas) return;
-    setTextToolActive(true);
-
-    // Disable drawing mode and selection
-    canvas.isDrawingMode = false;
-    canvas.selection = false;
-    
-    // Set cursor to text
-    canvas.defaultCursor = 'text';
-    canvas.hoverCursor = 'text';
-     
-
-     console.log("Text tool activated");
-    
-    //Mouse movements binded in useEffect
   };
 
-  const deactivateTextTool = () => {
-    console.log("Text tool deactivated");
-    if (!canvas) return;
-    // Reset cursors
-    canvas.defaultCursor = 'default';
-    canvas.hoverCursor = 'move';
-    
-    // Re-enable selection
-    canvas.selection = true;
-    canvas.isDrawingMode = true;
-    
-    setTextToolActive(false);
-    setSelectedTextObject(null)
+  const textToolOperations = {
+    /**
+     * Activates the text tool mode
+     */
+    activateTextTool: (): void => {
+      if (!canvas) return;
+      setTextToolActive(true);
 
-    canvas.off('selection:created');
-    
-   
+      // Disable drawing mode and selection
+      canvas.isDrawingMode = false;
+      canvas.selection = false;
+
+      // Set cursor to text
+      canvas.defaultCursor = 'text';
+      canvas.hoverCursor = 'text';
+    },
+
+    /**
+     * Deactivates the text tool mode
+     */
+    deactivateTextTool: (): void => {
+      if (!canvas) return;
+
+      // Reset cursors
+      canvas.defaultCursor = 'default';
+      canvas.hoverCursor = 'move';
+
+      // Re-enable selection
+      canvas.selection = true;
+      canvas.isDrawingMode = true;
+
+      setTextToolActive(false);
+      setSelectedTextObject(null);
+      canvas.off('selection:created');
+    }
   };
 
-  useEffect(() =>{
+  // Update selected text object when text properties change
+  useEffect(() => {
     if (selectedTextObject) {
-      selectedTextObject.fontSize = textProps.fontSize;
-      selectedTextObject.fontFamily = textProps.fontFamily;
-      selectedTextObject.textAlign = textProps.align;
-      selectedTextObject.fontWeight = textProps.bold ? 'bold' : 'normal';
-      selectedTextObject.fontStyle = textProps.italic ? 'italic' : 'normal';
-      selectedTextObject.underline = textProps.underline;
+      selectedTextObject.set({
+        fontSize: textProps.fontSize,
+        fontFamily: textProps.fontFamily,
+        textAlign: textProps.align,
+        fontWeight: textProps.bold ? 'bold' : 'normal',
+        fontStyle: textProps.italic ? 'italic' : 'normal',
+        underline: textProps.underline
+      });
       canvas?.requestRenderAll();
     }
-  }, [selectedTextObject, textProps]);
+  }, [selectedTextObject, textProps, canvas]);
 
+  // Set up event listeners when text tool is activated/deactivated
   useEffect(() => {
     if (!canvas) return;
 
-    const cleanup = () => {
-      canvas.off('mouse:down', addTextBox as any);
-      canvas.off('selection:created');
+    const handleSelectionCreated = (e: fabric.IEvent) => {
+      const selectedObject = canvas.getActiveObject();
+      if (selectedObject && selectedObject.type === 'i-text') {
+        setSelectedTextObject(selectedObject as fabric.IText);
+      }
     };
 
-    
+    const cleanup = () => {
+      canvas.off('mouse:down', addTextBox as any);
+      canvas.off('selection:created', handleSelectionCreated);
+    };
+
     if (textToolActive) {
-      console.log("Binding mouse down for text tool");
       cleanup(); // Remove any existing listeners first
       canvas.on('mouse:down', addTextBox as any);
-      
-      canvas.on('selection:created', (e) => {
-        const selectedObject = canvas.getActiveObject();
-        if (selectedObject && selectedObject.type === 'i-text') {
-          setSelectedTextObject(selectedObject as fabric.IText);
-          // ...existing property updates...
-        }
-      });
+      canvas.on('selection:created', handleSelectionCreated);
     } else {
-      cleanup(); // Remove listeners when tool is deactivated
+      cleanup();
     }
 
     return cleanup;
-    
-  }, [textToolActive]);
-
- 
+  }, [textToolActive, canvas]);
 
   return {
     textProps,
     setTextProps,
     textToolActive,
     setTextToolActive,
-    activateTextTool,
-    deactivateTextTool
+    ...textToolOperations
   };
-};
+}
 
