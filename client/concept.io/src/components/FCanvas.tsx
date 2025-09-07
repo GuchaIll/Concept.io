@@ -9,7 +9,7 @@ import ToolBar from './Panel/ToolBar';
 import { EyeDropper } from '../hooks/EyeDropper';
 import {useShape} from '../hooks/Shape';
 import {useText} from '../hooks/Text';
-
+import {useZoomPan} from '../hooks/ZoomPan';
 
 
 declare module 'fabric' {
@@ -32,6 +32,7 @@ const FCanvas = () => {
     const eyeDropperProps = EyeDropper(canvas);
     const shapeProps = useShape(canvas);
     const textProps = useText(canvas);
+    const zoomPanProps = useZoomPan(canvas);
   
 
     useEffect(() => {
@@ -137,6 +138,10 @@ const FCanvas = () => {
         deactivateTextTool={textProps.deactivateTextTool}
         deactivateShapeTool={shapeProps.deactivateShapeTool}
         activateShapeTool={shapeProps.activateShapeTool}
+        isPanning={zoomPanProps.isPanning}
+        activatePanMode={zoomPanProps.activatePanMode}
+        deactivatePanMode={zoomPanProps.deactivatePanMode}
+        resetZoomPan={zoomPanProps.resetZoomPan}
       />
 
       <LayerPanel {...layerProps} />
