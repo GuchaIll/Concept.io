@@ -14,6 +14,9 @@ import {
   Trash2,
   Pipette,
   Type,
+  Move,
+  ZoomIn,
+  RotateCw,
   ToggleLeft
 } from 'lucide-react';
 import {ColorToString, hexToRGBA} from '../../hooks/Color'
@@ -53,7 +56,11 @@ interface ToolBarProps {
   activateTextTool: () => void;
   deactivateTextTool: () => void;  
   deactivateShapeTool: () => void;
-  activateShapeTool: () => void;  
+  activateShapeTool: () => void; 
+  isPanning: boolean;
+  activatePanMode: () => void;
+  deactivatePanMode: () => void;
+  resetZoomPan: () => void;
 }
 
 
@@ -87,7 +94,11 @@ const ToolBar: React.FC<ToolBarProps> = ({
   activateTextTool,
   deactivateTextTool,
   deactivateShapeTool,
-  activateShapeTool
+  activateShapeTool,
+  isPanning,
+  activatePanMode,
+  deactivatePanMode,
+  resetZoomPan,
 
 }) => {
   const tools = [
@@ -101,6 +112,24 @@ const ToolBar: React.FC<ToolBarProps> = ({
     { id: 'texture', icon: <Image size={20} />, label: 'Texture Pattern', hasSubmenu: false },
     { id: 'shape', icon: <Square size={20} />, label: 'Shapes', hasSubmenu: true },
     { id: 'text', icon: <Type size={20} />, label: 'Text', hasSubmenu: true },
+    { 
+      id: 'pan',
+      icon: <Move size={20} />,
+      label: 'Pan',
+      onClick: () => {
+        if (isPanning) {
+          deactivatePanMode();
+        } else {
+          activatePanMode();
+        }
+      }
+    },
+    {
+      id: 'reset-view',
+      icon: <RotateCw size={20} />,
+      label: 'Reset View',
+      onClick: resetZoomPan
+    }
   ];
 
   const [activeSubMenu, setActiveSubMenu] = React.useState<'none' | 'shape' | 'text'>('none');
@@ -142,6 +171,15 @@ const ToolBar: React.FC<ToolBarProps> = ({
       }
       if(activeSubMenu === 'shape'){
         deactivateShapeTool();
+      }
+
+      if(tool.id === 'pan')
+      {
+        tool.onClick && tool.onClick();
+      }
+
+      if(tool.id === 'reset-view'){
+        tool.onClick && tool.onClick();
       }
       setActiveSubMenu('none');
     }
