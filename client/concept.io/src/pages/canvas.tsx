@@ -1,11 +1,16 @@
-import React from 'react'
-import FCanvas from '../components/FCanvas'
+import { FCanvas } from '../components/FCanvas'
+import { ToolProvider } from '../contexts/ToolContext'
+import {CanvasProvider} from '../contexts/CanvasContext'
 
 const Canvas = () => {
   return (
-    <div>
-      <FCanvas />
-    </div>
+    <ToolProvider>
+      <CanvasProvider>
+        <div className="w-full h-full">
+          <FCanvas />
+        </div>
+      </CanvasProvider>
+    </ToolProvider>
   )
 }
 

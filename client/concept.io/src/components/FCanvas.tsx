@@ -1,158 +1,80 @@
-import {useEffect, useState, useRef} from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as fabric from 'fabric';
-import {useBrush} from '../hooks/Brush';
-import {useLayers} from '../hooks/Layer';
-import { useHistory } from '../hooks/History';
+import { useTool } from '../contexts/ToolContext';
+import {ToolBar} from './Panel/ToolBar';
 import { LayerPanel } from './Controls/Layer/LayerPanel';
-import { ColorPicker } from './Controls/Selector/ColorPicker';
-import ToolBar from './Panel/ToolBar';
-import { EyeDropper } from '../hooks/EyeDropper';
-import {useShape} from '../hooks/Shape';
-import {useText} from '../hooks/Text';
-import {useZoomPan} from '../hooks/ZoomPan';
+import { useCanvasContext } from '../contexts/CanvasContext';
 
-
-declare module 'fabric' {
-  export interface FabricObject {
-    id?: string;
-    layerId?: string;
-    baseOpacity?:number;
-  }
-}
-
-
-const FCanvas = () => {
-    const canvasRef = useRef<HTMLCanvasElement | null>(null);
-    const [canvas, setCanvas] = useState<fabric.Canvas | null>(null);
-    const [drawingModeOn, setDrawingModeOn] = useState<boolean>(true);
+export const FCanvas = () => {
+  const { state: toolState } = useTool();
+  const [isCanvasReady, setIsCanvasReady] = useState(false);
+  const { canvasRef, layer } = useCanvasContext();
     
-    const brushProps = useBrush(canvas);
-    const historyProps = useHistory(canvas);
-    const layerProps = useLayers(canvas);
-    const eyeDropperProps = EyeDropper(canvas);
-    const shapeProps = useShape(canvas);
-    const textProps = useText(canvas);
-    const zoomPanProps = useZoomPan(canvas);
-  
+  //   width: window.innerWidth,
+  //   height: window.innerHeight,
+  //   backgroundColor: 'white'
+  // });
 
-    useEffect(() => {
-      if (!canvasRef.current) return;
+    //  useEffect(() => {
+    //   if (!canvasRef.current) return;
 
-      const newCanvas = new fabric.Canvas(canvasRef.current, {
-        height: window.innerHeight,
-        width: window.innerWidth,
-        backgroundColor: 'white',
-        isDrawingMode: true,
-      });
+    //   const newCanvas = new fabric.Canvas(canvasRef.current, {
+    //     height: window.innerHeight,
+    //     width: window.innerWidth,
+    //     backgroundColor: 'white',
+    //     isDrawingMode: true,
+    //   });
 
-      setCanvas(newCanvas);
+    //   setCanvas(newCanvas);
 
-      return () => {
-        newCanvas.dispose();
+    //   return () => {
+    //     newCanvas.dispose();
        
-      };
-    }, []);
+    //   };
+    // }, []);
 
-    useEffect(() => {
-      if (!canvas) return;
-      
-      const handleObjectAdded = (e : any) => {
-        if(!e.target) return;
+  // const handleToolChange = useCallback(() => {
+  //   if (!canvas || !toolState.activeTool || !isCanvasReady) return;
 
-        layerProps.updateLayers(e);
-        historyProps.saveToHistory(e.target);
+  //   switch (toolState.activeToolId) {
+  //     case 'brush':
+  //       canvas.isDrawingMode = true;
+  //       canvas.selection = false;
+  //       break;
+  //     case 'pan':
+  //       canvas.isDrawingMode = false;
+  //       canvas.selection = false;
+  //       break;
+  //     default:
+  //       canvas.isDrawingMode = false;
+  //       canvas.selection = true;
+  //   }
+  // }, [canvas, toolState.activeToolId, isCanvasReady]);
 
-      };
+  // useEffect(() => {
+  //   if (isCanvasReady) {
+  //     handleToolChange();
+  //   }
+  // }, [handleToolChange, isCanvasReady]);
 
-      canvas.on('object:added', handleObjectAdded);
-
-      return () => canvas.off('object:added', handleObjectAdded);
-    }, [canvas, layerProps.updateLayers, historyProps.saveToHistory]);
-
-  
-    const handleClearCanvas = () => {
-      console.log("Clear button clicked");
-      if (!canvas) return;
-      canvas.clear();
-    }
-
-    const handleToggleDrawing = () => {
-    
-      if (!canvas) return;
-      canvas.isDrawingMode = !canvas.isDrawingMode;
-      setDrawingModeOn(!drawingModeOn);
-    }
-
-  useEffect(() => {
-    const handleKeyDown = (e : KeyboardEvent) => {
-      if(e.key === 'z' && (e.ctrlKey || e.metaKey)) {
-        if(e.shiftKey){
-          historyProps.undo();
-       }
-       else{
-          historyProps.redo();
-       }
-      }
-    };
-
-    const resizeWindow = (e : UIEvent) => {
-      if (!canvas) return;
-      canvas.setDimensions({
-        height: window.innerHeight,
-        width: window.innerWidth,
-      });
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('resize', resizeWindow);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('resize', resizeWindow);
-    };
-
-  }, [historyProps]);
-
-
-   return(
-      <>
-      <ToolBar
-        {...brushProps}
-        drawingModeOn={drawingModeOn}
-        handleUndo={historyProps.undo}
-        handleRedo={historyProps.redo}
-        handleToggleDrawing={handleToggleDrawing}
-        handleClearCanvas={handleClearCanvas}
-        handleErase={brushProps.handleErase}
-        isEyedropperActive={eyeDropperProps.isEyeDropperActive}
-        handleEyedropperTool={eyeDropperProps.handleEyeDropperTool}
-        setShapeType={shapeProps.setShapeType}
-        setShapeProps={shapeProps.setShapeProps}
-        setTextProps={textProps.setTextProps}
-        shapeType={shapeProps.shapeType}
-        shapeProps={shapeProps.shapeProps}
-        textProps={textProps.textProps}
-        fillShape={shapeProps.fillShape}
-        setFillShape={shapeProps.setFillShape}
-        createSelectedShape={shapeProps.createSelectedShape}
-        activateTextTool={textProps.activateTextTool}
-        deactivateTextTool={textProps.deactivateTextTool}
-        deactivateShapeTool={shapeProps.deactivateShapeTool}
-        activateShapeTool={shapeProps.activateShapeTool}
-        isPanning={zoomPanProps.isPanning}
-        activatePanMode={zoomPanProps.activatePanMode}
-        deactivatePanMode={zoomPanProps.deactivatePanMode}
-        resetZoomPan={zoomPanProps.resetZoomPan}
+  return (
+    <>
+      <ToolBar />
+      <LayerPanel 
+        layers={layer.layers}
+        activeLayer={layer.activeLayer}
+        setActiveLayer={layer.setActiveLayer}
+        addLayer={layer.addLayer}
+        removeLayer={layer.removeLayer}
+        updateLayerVisibility={layer.updateLayerVisibility}
+        updateLayerOpacity={layer.updateLayerOpacity}
+        moveLayerUp={layer.moveLayerUp}
+        moveLayerDown={layer.moveLayerDown}
       />
-
-      <LayerPanel {...layerProps} />
-      <ColorPicker color={brushProps.color} onColorChange={brushProps.setColor} />
-
       <canvas
         ref={canvasRef}
         className="absolute border border-indigo-600 mt-10"
       />
     </>
-   );
-}
-
-export default FCanvas
+  );
+};

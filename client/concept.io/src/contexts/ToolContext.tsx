@@ -32,23 +32,34 @@ const toolReducer = (state: ToolState, action: ToolAction): ToolState => {
 
 };
 
-const ToolContext = createContext<{
+type ToolContextType = {
     state: ToolState;
     dispatch: React.Dispatch<ToolAction>;
-} | null>(null);
+};
+
+const ToolContext = createContext<ToolContextType>(null as unknown as ToolContextType);
+ToolContext.displayName = 'ToolContext';
 
 export const ToolProvider = ({children} : {children: ReactNode}) => {
     const [state, dispatch] = useReducer(toolReducer, initialState);
 
+    const value: ToolContextType = {
+        state,
+        dispatch
+    };
+
     return (
-        <ToolContext.Provider value={{state, dispatch}}>
+        <ToolContext.Provider value={value}>
             {children}
         </ToolContext.Provider>
     );
 };
 
-export const useTool = () => {
-  const context = useContext(ToolContext);
-  if (!context) throw new Error('useTool must be used within ToolProvider');
-  return context;
+export const useTool = (): ToolContextType => {
+    const toolContext = useContext(ToolContext);
+    if (!toolContext) {
+        throw new Error('useTool must be used within a ToolProvider');
+    }
+    return toolContext;
+
 };
