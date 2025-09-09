@@ -1,133 +1,156 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import * as fabric from 'fabric';
+import { useTool } from '../contexts/ToolContext';
 
 export const useZoomPan = (canvas: fabric.Canvas | null) => {
+  const { state: toolState } = useTool();
+  const isPanToolActive = toolState.activeToolId === 'pan';
+  
   const [isPanning, setIsPanning] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [lastPosX, setLastPosX] = useState(0);
   const [lastPosY, setLastPosY] = useState(0);
 
-  const activatePanMode = useCallback(() => {
+  const handleZoom = useCallback((opt: fabric.TEvent<WheelEvent>) => {
     if (!canvas) return;
-    console.log("Pan mode activated");
+    const evt = opt.e;
+    
+    console.log('Zoom event:', { deltaY: evt.deltaY, currentZoom: canvas.getZoom() });
+    
+    let zoom = canvas.getZoom();
+    zoom *= 0.999 ** evt.deltaY; // Smooth zoom
+
+    // Limit zoom range
+    zoom = Math.min(Math.max(0.5, zoom), 5);
+
+    // Zoom to point under cursor
+    canvas.zoomToPoint(new fabric.Point(evt.offsetX, evt.offsetY), zoom);
+    setZoomLevel(zoom);
+    
+    evt.preventDefault();
+    evt.stopPropagation();
+  }, [canvas]);
+
+  const handlePanStart = useCallback((opt: fabric.TEvent<MouseEvent | TouchEvent>) => {
+    console.log('Pan start event:', { isPanToolActive });
+    if (!canvas || !isPanToolActive) return;
+    const evt = opt.e;
+    
+    // Skip if not using left mouse button
+    if (evt instanceof MouseEvent && evt.buttons !== 1) return;
+
+    let clientX: number, clientY: number;
+    if (evt instanceof MouseEvent) {
+      clientX = evt.clientX;
+      clientY = evt.clientY;
+    } else if (evt instanceof TouchEvent && evt.touches.length > 0) {
+      clientX = evt.touches[0].clientX;
+      clientY = evt.touches[0].clientY;
+    } else {
+      return;
+    }
+
+    setLastPosX(clientX);
+    setLastPosY(clientY);
     setIsPanning(true);
-    canvas.defaultCursor = 'grab';
-    canvas.hoverCursor = 'grab';
     canvas.selection = false;
-    canvas.isDrawingMode = false;
-  }, [canvas]);
-
-  const deactivatePanMode = useCallback(() => {
-    if (!canvas) return;
-    console.log("Pan mode deactivated");  
-    setIsPanning(false);
-    canvas.defaultCursor = 'default';
-    canvas.hoverCursor = 'move';
-    canvas.selection = true;
-    canvas.isDrawingMode = true;
-
-    canvas.off('mouse:down', (opt) => handleMouseDragStart(opt));
-    canvas.off('mouse:move', (opt) => handleMouseDragMove(opt));
-    canvas.off('mouse:up', (opt) => handleMouseRelease(opt));
-  }, [canvas]);
-
-  const handleMouseDragStart = useCallback((opt: fabric.TPointerEventInfo<fabric.TPointerEvent>) => {
-    if (!canvas || !isPanning) return;
-    const point = opt.scenePoint;
     canvas.defaultCursor = 'grabbing';
     canvas.hoverCursor = 'grabbing';
-    setLastPosX(point.x);
-    setLastPosY(point.y);
-  }, [canvas, isPanning]);
+  }, [canvas, isPanToolActive]);
 
-  const handleMouseDragMove = useCallback((opt: fabric.TPointerEventInfo<fabric.TPointerEvent>) => {
-    if (!canvas) return;
-    if (!isPanning) return;
-    // Only proceed if left mouse button is pressed or it's a touch event
-    if (opt.e && 'buttons' in opt.e && opt.e.buttons !== 1 && !(opt.e instanceof TouchEvent)) return;
-
-      const point = opt.scenePoint;
-      const deltaX = point.x - lastPosX;
-      const deltaY = point.y - lastPosY;
-
-      const delta = new fabric.Point(deltaX, deltaY);
-      canvas.relativePan(delta);
-
-      setLastPosX(point.x);
-      setLastPosY(point.y);
-    }, [canvas, isPanning, lastPosX, lastPosY]);
-
-  // const translateCanvas = (deltaX: number, deltaY: number) => {
-  //   if (!canvas) return;
-
-  //   const transform = getTransformVals(canvas.wrapperEl);
-
-  //   let offsetX = transform.translateX + (event.clientX - (lastPosX || 0));
-  //   let offsetY = transform.translateY + (event.clientY - (lastPosY || 0));
-
-  //   canvas.wrapperEl.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${transform.scaleX})`;
-  // } ;
-
-
-  const handleMouseRelease = useCallback((opt : fabric.TPointerEventInfo<fabric.TPointerEvent>) => {
+  const handlePanMove = useCallback((opt: fabric.TEvent<MouseEvent | TouchEvent>) => {
     if (!canvas || !isPanning) return;
-    canvas.defaultCursor = 'grab';
-    canvas.hoverCursor = 'grab';
-  }, [canvas, isPanning]);
+    const evt = opt.e;
 
-  const handlePanning = useCallback(() => {
-    if (!canvas) return;
+    let clientX: number, clientY: number;
+    if (evt instanceof MouseEvent) {
+      clientX = evt.clientX;
+      clientY = evt.clientY;
+    } else if (evt instanceof TouchEvent && evt.touches.length > 0) {
+      clientX = evt.touches[0].clientX;
+      clientY = evt.touches[0].clientY;
+    } else {
+      return;
+    }
 
-    canvas.on('mouse:down', (opt) => handleMouseDragStart(opt));
+    const vpt = canvas.viewportTransform;
+    if (!vpt) return;
 
-    canvas.on('mouse:move', (opt) => handleMouseDragMove(opt));
+    // Update viewport transform directly
+    vpt[4] += clientX - lastPosX;
+    vpt[5] += clientY - lastPosY;
 
-    canvas.on('mouse:up', (opt) => handleMouseRelease(opt));
+    canvas.requestRenderAll();
+    setLastPosX(clientX);
+    setLastPosY(clientY);
   }, [canvas, isPanning, lastPosX, lastPosY]);
 
-
-
-  const zoomToPoint = useCallback((point: fabric.Point, zoom: number) => {
-    if (!canvas) return;
-
-    const zoomDelta = zoom / zoomLevel;
-    canvas.zoomToPoint(point, zoomDelta);
-    setZoomLevel(zoom);
-    canvas.requestRenderAll();
-  }, [canvas, zoomLevel]);
-
-  const handleZoom = useCallback((opt: WheelEvent) => {
+  const handlePanEnd = useCallback(() => {
     if (!canvas) return;
     
-    opt.preventDefault();
-    opt.stopPropagation();
+    setIsPanning(false);
+    canvas.selection = true;
+    canvas.defaultCursor = 'default';
+    canvas.hoverCursor = 'move';
+  }, [canvas]);
 
-    const delta = opt.deltaY;
-    let zoom = canvas.getZoom();
-    zoom *= 0.999 ** delta;
-    
-    if (zoom > 20) zoom = 20;
-    if (zoom < 0.01) zoom = 0.01;
-
-    const point = new fabric.Point(opt.offsetX, opt.offsetY);
-    zoomToPoint(point, zoom);
-  }, [canvas, zoomToPoint]);
-
-  const resetZoomPan = useCallback(() => {
+  const resetView = useCallback(() => {
     if (!canvas) return;
     
+    // Reset to identity transform
     canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     setZoomLevel(1);
     canvas.requestRenderAll();
   }, [canvas]);
 
+  // Effect to update canvas state when pan tool is activated/deactivated
+  useEffect(() => {
+    if (!canvas) return;
+    
+    if (isPanToolActive) {
+      canvas.defaultCursor = 'grab';
+      canvas.hoverCursor = 'grab';
+      canvas.selection = false;
+      canvas.isDrawingMode = false;
+    } else {
+      canvas.defaultCursor = 'default';
+      canvas.hoverCursor = 'move';
+      canvas.selection = true;
+      canvas.isDrawingMode = false;
+      setIsPanning(false);
+    }
+  }, [canvas, isPanToolActive]);
+
+  // Effect to handle zoom and pan events
+  useEffect(() => {
+    if (!canvas) return;
+
+    // Always enable zoom
+    canvas.on('mouse:wheel', handleZoom);
+    
+    // Only set up pan handlers if pan tool is active
+    if (isPanToolActive) {
+      canvas.on('mouse:down', handlePanStart);
+      canvas.on('mouse:move', handlePanMove);
+      canvas.on('mouse:up', handlePanEnd);
+      canvas.on('mouse:out', handlePanEnd);
+    }
+
+    return () => {
+      canvas.off('mouse:wheel', handleZoom);
+      if (isPanToolActive) {
+        canvas.off('mouse:down', handlePanStart);
+        canvas.off('mouse:move', handlePanMove);
+        canvas.off('mouse:up', handlePanEnd);
+        canvas.off('mouse:out', handlePanEnd);
+      }
+    };
+  }, [canvas, isPanToolActive, handleZoom, handlePanStart, handlePanMove, handlePanEnd]);
+
   return {
-    isPanning,
     zoomLevel,
-    activatePanMode,
-    deactivatePanMode,
-    handlePanning,
-    handleZoom,
-    resetZoomPan
+    isPanning,
+    isPanToolActive,
+    resetView
   };
 };

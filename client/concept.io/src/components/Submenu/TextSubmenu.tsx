@@ -50,7 +50,7 @@ export const TextSubmenu = memo(() => {
       <div className="space-y-3">
         <select
           value={textProps.fontFamily}
-          onChange={(e) => setTextProps({ ...textProps, fontFamily: e.target.value })}
+          onChange={(e) => setTextProps({ ...textProps, fontFamily: e.target.value as typeof textProps.fontFamily })}
           className="w-full p-2 rounded-lg border border-gray-300 bg-white dark:bg-gray-700 dark:border-gray-600"
         >
           {fontOptions.map(({ value, label }) => (

@@ -237,6 +237,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     const objectId = uuidv4();
     object.id = objectId;
     object.layerId = activeLayer.id;
+    object.erasable = true; // Make object erasable by default
 
     // Add the object ID to the active layer's objects array
     setLayers(prevLayers => 
