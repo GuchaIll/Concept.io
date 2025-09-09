@@ -7,12 +7,15 @@ interface ToolButtonProps {
   isActive: boolean;
 }
 
-export const ToolButton = memo(({ tool, isActive }: ToolButtonProps) => {
+export const ToolButton = memo(function ToolButton(props: ToolButtonProps) {
+  const { tool, isActive } = props;
   const { dispatch } = useTool();
 
   const handleClick = () => {
     dispatch({ type: 'SET_ACTIVE_TOOL', payload: tool });
   };
+
+  const Icon = tool.icon;
 
   return (
     <button
@@ -24,7 +27,7 @@ export const ToolButton = memo(({ tool, isActive }: ToolButtonProps) => {
         }`}
       title={tool.label}
     >
-      {tool.icon}
+      <Icon size={20} />
       <span className="text-xs">{tool.label}</span>
     </button>
   );

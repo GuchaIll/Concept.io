@@ -2,35 +2,46 @@ import {
   Square, 
   Circle as CircleIcon, 
   Triangle,
-  Hexagon,
   Minus,
-  
+  type LucideIcon
 } from 'lucide-react';
-import type {ShapeType, ShapeProperties} from '../../hooks/Shape'
+import type { ShapeType } from '../../hooks/Shape';
+import { useShape } from '../../hooks/Shape';
+import { useCanvasContext } from '../../contexts/CanvasContext';
 
-import React from 'react'
+import { memo } from 'react';
 
-export const ShapeSubmenu: React.FC<{
-  shapeType: ShapeType;
-  setShapeType: (type: ShapeType) => void;
-  shapeProps: ShapeProperties;
-  setShapeProps: (props: ShapeProperties) => void;
-  fillShape: boolean;
-  setFillShape: (fill: boolean) => void;
-  createSelectedShape: (selectedShapeType: ShapeType) => void;
+const shapeIcons: Record<ShapeType, LucideIcon> = {
+  rectangle: Square,
+  circle: CircleIcon,
+  triangle: Triangle,
+  line: Minus,
+  ellipse: CircleIcon,
+  polygon: Triangle
+};
 
-}> = ({ shapeType, setShapeType, shapeProps, setShapeProps, fillShape, setFillShape, createSelectedShape }) => {
+export const ShapeSubmenu = memo(() => {
+  const {canvas} = useCanvasContext();
+  const { 
+    shapeType, 
+    setShapeType, 
+    shapeProps,
+    setShapeProps,
+    fillShape, 
+    setFillShape, 
+    createSelectedShape,
+    
+  } = useShape(canvas);
 
-  const shapeData: { type: ShapeType; icon: React.ReactNode }[] = [
-    { type: 'rectangle', icon: <Square size={20} /> },
-    { type: 'circle', icon: <CircleIcon size={20} /> },
-    { type: 'triangle', icon: <Triangle size={20} /> },
-    { type: 'line', icon: <Minus size={20} /> },
-  ];
+  const shapeData = Object.entries(shapeIcons).map(([type, Icon]) => ({
+    type: type as ShapeType,
+    icon: <Icon size={20} />
+  }));
 
   return (
-    <div className="absolute left-full ml-2 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800">
+    <div className="absolute left-[200%] ml-2 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800">
       <div className="grid grid-cols-2 gap-2">
+
         {shapeData.map((shape) => (
           <button
             key={shape.type}
@@ -66,4 +77,6 @@ export const ShapeSubmenu: React.FC<{
       </div>
     </div>
   );
-};
+});
+
+ShapeSubmenu.displayName = 'ShapeSubmenu';

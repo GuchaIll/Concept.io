@@ -4,10 +4,12 @@ import * as fabric from 'fabric';
 export type ShapeType = 'rectangle' | 'circle' | 'ellipse' | 
                     'line' | 'triangle' | 'polygon';
 
+
 export interface ShapeProperties {
   fill: fabric.TFiller;
   strokeWidth: number;
 }
+
 
 // create a rect object
 const deleteIcon =
@@ -130,11 +132,11 @@ export const useShape = (canvas: fabric.Canvas | null) => {
           });
           break;
         case 'polygon':
-              // Create polygon points relative to center
+             
           const points = [
-            { x: -50, y: -50 },  // top left
-            { x: 0, y: 50 },     // bottom middle
-            { x: 50, y: -50 }    // top right
+            { x: -50, y: -50 },  
+            { x: 0, y: 50 },     
+            { x: 50, y: -50 }    
           ];
 
           // Translate points to center position
