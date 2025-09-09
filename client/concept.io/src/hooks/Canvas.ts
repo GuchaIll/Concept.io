@@ -3,6 +3,7 @@ import * as fabric from 'fabric';
 import { useTool } from '../contexts/ToolContext';
 import { useHistory } from './History';
 import { useLayers } from './Layer';
+import { useEraser } from './Eraser';
 
 export interface CanvasConfig {
   width?: number;
@@ -24,31 +25,35 @@ export const useCanvas = (config?: CanvasConfig) => {
   const { state: toolState } = useTool();
   const history = useHistory(canvas);
   const layer = useLayers(canvas);
+  const { EraseModeOn, toggleEraseMode } = useEraser(canvas);
 
 
   useEffect(() => {
-  if (!canvasRef.current) return;
+    if (!canvasRef.current) return;
 
-  // If a Fabric canvas already exists on this element, dispose it
-  
+    // If a Fabric canvas already exists on this element, dispose it
+    const newCanvas = new fabric.Canvas(canvasRef.current, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      backgroundColor: "white",
+      preserveObjectStacking: true,
+      enableRetinaScaling: true,
+      selection: true,
+      renderOnAddRemove: true,
+      fireRightClick: true,
+      stopContextMenu: true
+    });
 
-  const newCanvas = new fabric.Canvas(canvasRef.current, {
-    width: window.innerWidth,
-    height: window.innerHeight,
-    backgroundColor: "white",
-    preserveObjectStacking: true,
-    enableRetinaScaling: true,
-    selection: true,
-  });
+    // Enable proper event handling
+    newCanvas.wrapperEl?.setAttribute('tabindex', '1');
+    newCanvas.wrapperEl?.focus();
 
-  // attach reference to DOM element so we know it's been initialized
+    setCanvas(newCanvas);
 
-  setCanvas(newCanvas);
-
-  return () => {
-    newCanvas.dispose();
-  };
-}, []);
+    return () => {
+      newCanvas.dispose();
+    };
+  }, []);
 
 
   const handleResize = useCallback(() => {
@@ -84,6 +89,19 @@ export const useCanvas = (config?: CanvasConfig) => {
     }
   }, [canvas, history]);
 
+  // Handle tool changes
+  useEffect(() => {
+    if (!canvas) return;
+
+    const toolId = toolState.activeToolId || '';
+    canvas.defaultCursor = toolId === 'pan' ? 'grab' : 'default';
+    canvas.hoverCursor = toolId === 'pan' ? 'grab' : 'move';
+    canvas.selection = !['pan', 'brush', 'eraser'].includes(toolId);
+    canvas.isDrawingMode = toolId === 'brush';
+
+    canvas.requestRenderAll();
+  }, [canvas, toolState.activeToolId]);
+
   const handleObjectAdded = useCallback((e: any) => {
     if (!e.target) return;
     
@@ -115,9 +133,21 @@ export const useCanvas = (config?: CanvasConfig) => {
   useEffect(() => {
     if (!canvas || !toolState.activeTool) return;
 
+    // Deactivate eraser mode when switching to other tools
+    if (toolState.activeToolId !== 'eraser' && EraseModeOn) {
+      toggleEraseMode();
+    }
+
     switch (toolState.activeToolId) {
       case 'brush':
         canvas.isDrawingMode = true;
+        canvas.selection = false;
+        canvas.defaultCursor = 'crosshair';
+        break;
+      case 'eraser':
+        if (!EraseModeOn) {
+          toggleEraseMode();
+        }
         canvas.selection = false;
         canvas.defaultCursor = 'crosshair';
         break;
@@ -141,7 +171,7 @@ export const useCanvas = (config?: CanvasConfig) => {
         canvas.selection = true;
         canvas.defaultCursor = 'default';
     }
-  }, [canvas, toolState.activeToolId]);
+  }, [canvas, toolState.activeToolId, EraseModeOn, toggleEraseMode]);
 
   const clearCanvas = useCallback(() => {
     if (!canvas) return;
@@ -166,6 +196,8 @@ export const useCanvas = (config?: CanvasConfig) => {
     clearCanvas,
     getCanvasImage,
     history,
-    layer
+    layer,
+    isErasing: EraseModeOn,
+    toggleEraser: toggleEraseMode
   };
 };

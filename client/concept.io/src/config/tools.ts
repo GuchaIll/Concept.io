@@ -4,11 +4,23 @@ import {
    Type,
    Pencil,
    Eraser,
-   Move, ZoomIn, ZoomOut, RotateCw, ToggleLeft
+   Move, ZoomIn, ZoomOut, RotateCw, ToggleLeft, Pipette, PaintBucket
 
 } from 'lucide-react';
 
 export const tools: Tool[] = [
+  {
+    id: 'ColorPicker',
+    label: 'Color Picker',
+    icon: Pipette,
+    hasSubmenu: false,
+  },
+  {
+    id: 'Fill',
+    label: 'Fill',
+    icon: PaintBucket,
+    hasSubmenu: false,
+  },
   {
     id: 'brush',
     label: 'Brush',

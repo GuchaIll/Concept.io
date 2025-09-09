@@ -1,19 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import * as fabric from 'fabric';
 import { useTool } from '../contexts/ToolContext';
 import {ToolBar} from './Panel/ToolBar';
 import { LayerPanel } from './Controls/Layer/LayerPanel';
 import { useCanvasContext } from '../contexts/CanvasContext';
+import { useZoomPan } from '../hooks/ZoomPan';
 
 export const FCanvas = () => {
   const { state: toolState } = useTool();
   const [isCanvasReady, setIsCanvasReady] = useState(false);
-  const { canvasRef, layer } = useCanvasContext();
-    
-  //   width: window.innerWidth,
-  //   height: window.innerHeight,
-  //   backgroundColor: 'white'
-  // });
+  const { canvasRef, canvas, layer } = useCanvasContext();
+  const { zoomLevel } = useZoomPan(canvas);
 
     //  useEffect(() => {
     //   if (!canvasRef.current) return;
