@@ -21,7 +21,8 @@
 <div align="center">
  <img src="img/Goals.png" alt="Character Design" width="600"/>
 </div>
-###  Drawing Tools
+
+##  Drawing Tool
 <div align="center">
   <img src="img/Canvas.png" alt="Drawing Tools" width="600"/>
 </div>
