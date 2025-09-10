@@ -1,4 +1,4 @@
-import React from 'react';
+
 import type { Layer } from '../../../hooks/Layer';
 import {
   DndContext,

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as fabric from 'fabric';
 import { useTool } from '../contexts/ToolContext';
 
@@ -32,7 +32,6 @@ export const useZoomPan = (canvas: fabric.Canvas | null) => {
   }, [canvas]);
 
   const handlePanStart = useCallback((opt: fabric.TEvent<MouseEvent | TouchEvent>) => {
-    console.log('Pan start event:', { isPanToolActive });
     if (!canvas || !isPanToolActive) return;
     const evt = opt.e;
     
@@ -53,14 +52,35 @@ export const useZoomPan = (canvas: fabric.Canvas | null) => {
     setLastPosX(clientX);
     setLastPosY(clientY);
     setIsPanning(true);
-    canvas.selection = false;
+
+    // Update cursor only while actively panning
     canvas.defaultCursor = 'grabbing';
     canvas.hoverCursor = 'grabbing';
   }, [canvas, isPanToolActive]);
 
+  // Ref to store the last animation frame request
+  const animationFrameRef = useRef<number | undefined>(undefined);
+  const lastUpdateTimeRef = useRef<number>(0);
+  const FRAME_RATE = 60; // Limit to 60 FPS
+  const FRAME_INTERVAL = 1000 / FRAME_RATE;
+
   const handlePanMove = useCallback((opt: fabric.TEvent<MouseEvent | TouchEvent>) => {
-    if (!canvas || !isPanning) return;
+    if (!canvas || !isPanToolActive || !isPanning) return;
     const evt = opt.e;
+
+    // Cancel any pending animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+
+    // Get current time
+    const currentTime = Date.now();
+    
+    // If we haven't waited long enough since the last update, schedule next frame
+    if (currentTime - lastUpdateTimeRef.current < FRAME_INTERVAL) {
+      animationFrameRef.current = requestAnimationFrame(() => handlePanMove(opt));
+      return;
+    }
 
     let clientX: number, clientY: number;
     if (evt instanceof MouseEvent) {
@@ -76,22 +96,36 @@ export const useZoomPan = (canvas: fabric.Canvas | null) => {
     const vpt = canvas.viewportTransform;
     if (!vpt) return;
 
-    // Update viewport transform directly
-    vpt[4] += clientX - lastPosX;
-    vpt[5] += clientY - lastPosY;
+    // Calculate the new position
+    const deltaX = clientX - lastPosX;
+    const deltaY = clientY - lastPosY;
 
-    canvas.requestRenderAll();
+    // Update viewport transform
+    vpt[4] += deltaX;
+    vpt[5] += deltaY;
+
+    // Use setTransform instead of directly modifying vpt
+    canvas.setViewportTransform(vpt);
+
+    // Update last position and time
     setLastPosX(clientX);
     setLastPosY(clientY);
-  }, [canvas, isPanning, lastPosX, lastPosY]);
+    lastUpdateTimeRef.current = currentTime;
+  }, [canvas, isPanToolActive, isPanning, lastPosX, lastPosY]);
 
   const handlePanEnd = useCallback(() => {
     if (!canvas) return;
     
     setIsPanning(false);
-    canvas.selection = true;
-    canvas.defaultCursor = 'default';
-    canvas.hoverCursor = 'move';
+
+    // Reset cursor to grab if still in pan mode, otherwise default
+    if (isPanToolActive) {
+      canvas.defaultCursor = 'grab';
+      canvas.hoverCursor = 'grab';
+    } else {
+      canvas.defaultCursor = 'default';
+      canvas.hoverCursor = 'move';
+    }
   }, [canvas]);
 
   const resetView = useCallback(() => {
@@ -104,48 +138,71 @@ export const useZoomPan = (canvas: fabric.Canvas | null) => {
   }, [canvas]);
 
   // Effect to update canvas state when pan tool is activated/deactivated
+  // Effect to handle tool state changes
   useEffect(() => {
     if (!canvas) return;
-    
+
+    console.log('Tool state changed:', { isPanToolActive });
+    // Cancel any ongoing pan animation when changing tools
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = undefined;
+    }
+
     if (isPanToolActive) {
       canvas.defaultCursor = 'grab';
       canvas.hoverCursor = 'grab';
       canvas.selection = false;
       canvas.isDrawingMode = false;
     } else {
-      canvas.defaultCursor = 'default';
-      canvas.hoverCursor = 'move';
-      canvas.selection = true;
-      canvas.isDrawingMode = false;
-      setIsPanning(false);
+      setIsPanning(false); // Reset panning state when switching tools
     }
+
+    // Reset state
+    setLastPosX(0);
+    setLastPosY(0);
+    lastUpdateTimeRef.current = 0;
   }, [canvas, isPanToolActive]);
 
   // Effect to handle zoom and pan events
   useEffect(() => {
     if (!canvas) return;
 
+    const zoomHandler = handleZoom;
+    const panStartHandler = handlePanStart;
+    const panMoveHandler = handlePanMove;
+    const panEndHandler = handlePanEnd;
+
     // Always enable zoom
-    canvas.on('mouse:wheel', handleZoom);
+    canvas.on('mouse:wheel', zoomHandler);
     
-    // Only set up pan handlers if pan tool is active
-    if (isPanToolActive) {
-      canvas.on('mouse:down', handlePanStart);
-      canvas.on('mouse:move', handlePanMove);
-      canvas.on('mouse:up', handlePanEnd);
-      canvas.on('mouse:out', handlePanEnd);
-    }
+    // Always set up pan handlers, but they'll only work when pan tool is active
+    canvas.on('mouse:down', panStartHandler);
+    canvas.on('mouse:move', panMoveHandler);
+    canvas.on('mouse:up', panEndHandler);
+    canvas.on('mouse:out', panEndHandler);
 
     return () => {
-      canvas.off('mouse:wheel', handleZoom);
-      if (isPanToolActive) {
-        canvas.off('mouse:down', handlePanStart);
-        canvas.off('mouse:move', handlePanMove);
-        canvas.off('mouse:up', handlePanEnd);
-        canvas.off('mouse:out', handlePanEnd);
+      // Clean up event handlers
+      canvas.off('mouse:wheel', zoomHandler);
+      canvas.off('mouse:down', panStartHandler);
+      canvas.off('mouse:move', panMoveHandler);
+      canvas.off('mouse:up', panEndHandler);
+      canvas.off('mouse:out', panEndHandler);
+
+      // Cancel any ongoing animation
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = undefined;
       }
+
+      // Reset all state
+      setIsPanning(false);
+      setLastPosX(0);
+      setLastPosY(0);
+      lastUpdateTimeRef.current = 0;
     };
-  }, [canvas, isPanToolActive, handleZoom, handlePanStart, handlePanMove, handlePanEnd]);
+  }, [canvas, handleZoom, handlePanStart, handlePanMove, handlePanEnd]);
 
   return {
     zoomLevel,

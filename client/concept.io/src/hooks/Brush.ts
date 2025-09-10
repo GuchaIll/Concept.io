@@ -1,13 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import * as fabric from 'fabric';
-import { EraserBrush, ClippingGroup } from "@erase2d/fabric";
+import { EraserBrush } from "@erase2d/fabric";
 import type {RGBAColor} from './Color';
 import {ColorToString} from './Color';
+import { useTool } from '../contexts/ToolContext';
+import type { ToolType } from '../types/tools';
 
 
 export const useBrush = (canvas: fabric.Canvas | null) => {
+  const { state: toolState } = useTool();
   const [brushType, setBrushType] = useState<string>('pencil');
   const [color, setColor] = useState<RGBAColor>({r: 0, g: 0, b: 0, a: 1});
+  const [previousColor, setPreviousColor] = useState<RGBAColor>({r: 0, g: 0, b: 0, a: 1});
+  const [previousTool, setPreviousTool] = useState<ToolType | null>(null);
   const [lineWidth, setLineWidth] = useState<number>(5);
   const [brushOpacity, setBrushOpacity] = useState<number>(1); 
   const [shadowColor, setShadowColor] = useState<string>('#000000');
@@ -180,7 +185,18 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
       }
     }
 
-      const handleErase = () => {
+    // Handle color changes from eyedropper or color picker
+    const handleColorChange = (newColor: RGBAColor) => {
+        setPreviousColor(color); // Store current color before changing
+        setColor(newColor);
+    }
+
+    // Restore the previous color (used when switching back from eyedropper)
+    const restorePreviousColor = () => {
+        setColor(previousColor);
+    }
+
+    const handleErase = () => {
          if (!canvas) return;
     
         setEraseModeOn(!eraseModeOn);
@@ -201,10 +217,30 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
          }
       }
     
+    // Effect to track tool changes and handle color restoration
     useEffect(() => {
-    if (!canvas) return;
-    if(!initializedBrush) initializePatternBrushes();
-    updateBrush();
+        const currentTool = toolState.activeToolId;
+        
+        // Skip if no tool change
+        if (!currentTool || currentTool === previousTool) return;
+
+        console.log('Tool changed:', { previous: previousTool, current: currentTool });
+        
+        // If we're switching back to brush from eyedropper, restore the previous color
+        if (currentTool === 'brush' && previousTool === 'Eyedropper') {
+            console.log('Restoring previous color:', previousColor);
+            restorePreviousColor();
+        }
+        
+        // Update previous tool
+        setPreviousTool(currentTool);
+    }, [toolState.activeToolId, previousTool, previousColor]);
+
+    // Effect to handle brush updates
+    useEffect(() => {
+        if (!canvas) return;
+        if(!initializedBrush) initializePatternBrushes();
+        updateBrush();
     }, [canvas, brushType, color, lineWidth, shadowColor, shadowBlur, shadowOffset, eraseModeOn, brushOpacity]);
 
   return {
@@ -212,6 +248,10 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
     setBrushType,
     color,
     setColor,
+    handleColorChange,
+    restorePreviousColor,
+    setPreviousTool,
+    previousTool,
     lineWidth,
     setLineWidth,
     shadowColor,
