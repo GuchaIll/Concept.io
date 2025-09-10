@@ -24,7 +24,6 @@ export const ShapeSubmenu = memo(() => {
   const {canvas} = useCanvasContext();
   const { 
     shapeType, 
-    setShapeType, 
     shapeProps,
     setShapeProps,
     fillShape, 

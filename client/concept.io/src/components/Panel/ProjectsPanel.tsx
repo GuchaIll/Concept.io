@@ -1,4 +1,4 @@
-import React from 'react'
+
 
 interface ProjectProps {
   id: string;
@@ -8,10 +8,7 @@ interface ProjectProps {
 }
 
 const ProjectsPanel: React.FC<ProjectProps> = ({
-    id,
-    name,
-    description,
-    image
+    id
     }) => {
 
 

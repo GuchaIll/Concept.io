@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import * as fabric from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
-import { FabricHelper } from './FabricHelper';
 
 export const blendModes = {
   NORMAL: 'normal',
@@ -47,7 +46,6 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     locked: false
   }]);
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
-  const [isUpdating, setIsUpdating] = useState<boolean>(false);
 
   const getLayerIndexByID = (layerID: string) => {
     return layers.findIndex(layer => layer.id === layerID);
@@ -103,6 +101,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         ? { ...layer, opacity } 
         : layer
     ));
+    
     const objects = canvas.getObjects().filter(obj => obj.layerId === layerId);
     if(!objects) return;
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import * as fabric from 'fabric';
 
 export type ShapeType = 'rectangle' | 'circle' | 'ellipse' | 

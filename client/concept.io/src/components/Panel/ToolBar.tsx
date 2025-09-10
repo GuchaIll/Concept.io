@@ -7,15 +7,9 @@ import { TextSubmenu } from '../Submenu/TextSubmenu';
 import {BrushSubmenu} from '../Submenu/BrushSubmenu';
 import { ColorPicker } from '../Controls/Selector/ColorPicker';
 import { useBrush } from '../../hooks/Brush';
-import { useEraser } from '../../hooks/Eraser';
-import { useCanvasContext } from '../../contexts/CanvasContext';
-import { Brush } from 'lucide-react';
 
-export const ToolBar = memo(() => {
+export const ToolBar = memo((brushProps : ReturnType<typeof useBrush>) => {
   const { state } = useTool();
-  const { canvas } = useCanvasContext();
-  const brushProps = useBrush(canvas);
-
 
   return (
     <div className="fixed left-4 top-20 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800 z-50">

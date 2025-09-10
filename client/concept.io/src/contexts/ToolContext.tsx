@@ -1,6 +1,6 @@
 import {createContext, useContext, useReducer} from 'react';
 import type { ReactNode } from 'react';
-import type { Tool, ToolType, ToolState } from '../types/tools';
+import type { Tool, ToolState } from '../types/tools';
 
 
 type ToolAction = 

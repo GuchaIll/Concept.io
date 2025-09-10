@@ -4,6 +4,9 @@ import { useTool } from '../contexts/ToolContext';
 import { useHistory } from './History';
 import { useLayers } from './Layer';
 import { useEraser } from './Eraser';
+import { useEyeDropper } from './EyeDropper';
+import { useBrush } from './Brush';
+import { useFill } from './Fill';
 
 export interface CanvasConfig {
   width?: number;
@@ -26,6 +29,32 @@ export const useCanvas = (config?: CanvasConfig) => {
   const history = useHistory(canvas);
   const layer = useLayers(canvas);
   const { EraseModeOn, toggleEraseMode } = useEraser(canvas);
+  
+  // Initialize brush with current tool state
+  const brushProps = useBrush(canvas);
+  
+  // Initialize eyedropper with color callback
+  useEyeDropper(canvas, {
+    onColorPicked: (color) => {
+      brushProps.handleColorChange(color);
+    }
+  });
+
+  // When tool changes from eyedropper to another tool, restore previous color
+  useEffect(() => {
+    const wasUsingEyedropper = brushProps.previousTool === 'Eyedropper';
+    const isNotUsingEyedropper = toolState.activeToolId !== 'Eyedropper';
+
+    if (wasUsingEyedropper && isNotUsingEyedropper) {
+      brushProps.restorePreviousColor();
+    }
+
+    // Track the current tool for next change
+    brushProps.setPreviousTool(toolState.activeToolId);
+  }, [toolState.activeToolId]);
+
+  useFill(canvas, brushProps.color);
+
 
 
   useEffect(() => {
@@ -89,19 +118,6 @@ export const useCanvas = (config?: CanvasConfig) => {
     }
   }, [canvas, history]);
 
-  // Handle tool changes
-  useEffect(() => {
-    if (!canvas) return;
-
-    const toolId = toolState.activeToolId || '';
-    canvas.defaultCursor = toolId === 'pan' ? 'grab' : 'default';
-    canvas.hoverCursor = toolId === 'pan' ? 'grab' : 'move';
-    canvas.selection = !['pan', 'brush', 'eraser'].includes(toolId);
-    canvas.isDrawingMode = toolId === 'brush';
-
-    canvas.requestRenderAll();
-  }, [canvas, toolState.activeToolId]);
-
   const handleObjectAdded = useCallback((e: any) => {
     if (!e.target) return;
     
@@ -131,46 +147,95 @@ export const useCanvas = (config?: CanvasConfig) => {
 
   // Update canvas based on active tool
   useEffect(() => {
-    if (!canvas || !toolState.activeTool) return;
+    if (!canvas) return;
 
-    // Deactivate eraser mode when switching to other tools
-    if (toolState.activeToolId !== 'eraser' && EraseModeOn) {
+    const currentTool = toolState.activeToolId;
+    
+    // Handle eraser mode
+    if (currentTool !== 'eraser' && EraseModeOn) {
+      toggleEraseMode();
+    } else if (currentTool === 'eraser' && !EraseModeOn) {
       toggleEraseMode();
     }
 
-    switch (toolState.activeToolId) {
-      case 'brush':
-        canvas.isDrawingMode = true;
-        canvas.selection = false;
-        canvas.defaultCursor = 'crosshair';
+    // Default state
+    let newState = {
+      isDrawingMode: false,
+      selection: true,
+      defaultCursor: 'default'
+    };
+
+    // Tool-specific states
+    switch (currentTool) {
+      case 'Eyedropper':
+        newState = {
+          isDrawingMode: false,
+          selection: false,
+          defaultCursor: 'crosshair'
+        };
         break;
       case 'eraser':
-        if (!EraseModeOn) {
-          toggleEraseMode();
-        }
-        canvas.selection = false;
-        canvas.defaultCursor = 'crosshair';
+        newState = {
+          isDrawingMode: true,
+          selection: false,
+          defaultCursor: 'crosshair'
+        };
+        
+        break;
+      case 'Fill':
+      case 'shape':
+        newState = {
+          isDrawingMode: false,
+          selection: false,
+          defaultCursor: 'crosshair'
+        };
+        break;
+      case 'brush':
+        newState = {
+          isDrawingMode: true,
+          selection: false,
+          defaultCursor: 'crosshair'
+        };
         break;
       case 'pan':
-        canvas.isDrawingMode = false;
-        canvas.selection = false;
-        canvas.defaultCursor = 'grab';
+        newState = {
+          isDrawingMode: false,
+          selection: false,
+          defaultCursor: 'grab'
+        };
         break;
       case 'text':
-        canvas.isDrawingMode = false;
-        canvas.selection = true;
-        canvas.defaultCursor = 'text';
+        newState = {
+          isDrawingMode: false,
+          selection: true,
+          defaultCursor: 'text'
+        };
         break;
-      case 'shape':
-        canvas.isDrawingMode = false;
-        canvas.selection = true;
-        canvas.defaultCursor = 'crosshair';
+    }
+
+    // Apply new state
+    canvas.isDrawingMode = newState.isDrawingMode;
+    canvas.selection = newState.selection;
+    canvas.defaultCursor = newState.defaultCursor;
+    
+    // Set hover cursor based on tool
+    switch (currentTool) {
+      case 'Eyedropper':
+      case 'Fill':
+      case 'eraser':
+        canvas.hoverCursor = 'crosshair'; // Keep crosshair when hovering objects
+        break;
+      case 'pan':
+        canvas.hoverCursor = 'grab';
+        break;
+      case 'text':
+        canvas.hoverCursor = 'text';
         break;
       default:
-        canvas.isDrawingMode = false;
-        canvas.selection = true;
-        canvas.defaultCursor = 'default';
+        canvas.hoverCursor = newState.selection ? 'move' : newState.defaultCursor;
     }
+
+    canvas.requestRenderAll();
   }, [canvas, toolState.activeToolId, EraseModeOn, toggleEraseMode]);
 
   const clearCanvas = useCallback(() => {
@@ -198,6 +263,7 @@ export const useCanvas = (config?: CanvasConfig) => {
     history,
     layer,
     isErasing: EraseModeOn,
-    toggleEraser: toggleEraseMode
+    toggleEraser: toggleEraseMode,
+    brushProps
   };
 };

@@ -1,7 +1,7 @@
+import { useState, useEffect } from 'react';
 import { HslColorPicker } from 'react-colorful';
 import type { HslColor } from 'react-colorful';
-import React from 'react'
-import {hslToHex, ColorToString, hexToRGBA} from '../../../hooks/Color'
+import {hslToHex, hexToRGBA} from '../../../hooks/Color'
 import type { RGBAColor } from '../../../hooks/Color';
 
 interface ColorPickerProps {
@@ -9,9 +9,9 @@ interface ColorPickerProps {
   onColorChange: (color: RGBAColor) => void;
 }
 export const ColorPicker = ({ color, onColorChange }: ColorPickerProps) => {
-  const [currentColor, setCurrentColor] = React.useState<HslColor>({ h: 0, s: 0, l: 0});
+  const [currentColor, setCurrentColor] = useState<HslColor>({ h: 0, s: 0, l: 0});
 
-  React.useEffect(() => {
+  useEffect(() => {
     const hexColor = hslToHex(currentColor.h, currentColor.s, currentColor.l);
     const rgbaColor = hexToRGBA(hexColor, color.a);
     onColorChange(rgbaColor);

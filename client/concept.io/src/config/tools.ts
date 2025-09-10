@@ -4,14 +4,14 @@ import {
    Type,
    Pencil,
    Eraser,
-   Move, ZoomIn, ZoomOut, RotateCw, ToggleLeft, Pipette, PaintBucket
+   Move, ZoomIn, RotateCw, ToggleLeft, Pipette, PaintBucket
 
 } from 'lucide-react';
 
 export const tools: Tool[] = [
   {
-    id: 'ColorPicker',
-    label: 'Color Picker',
+    id: 'Eyedropper',
+    label: 'Eyedropper',
     icon: Pipette,
     hasSubmenu: false,
   },
@@ -73,7 +73,6 @@ export const tools: Tool[] = [
     label: 'Mirror',
     icon: ToggleLeft,
     hasSubmenu: false,
-
   },
 
 ];
