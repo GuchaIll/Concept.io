@@ -1,5 +1,6 @@
 
 import type { Layer } from '../../../hooks/Layer';
+import { LayerTypes, blendModes} from '../../../hooks/Layer';
 import {
   DndContext,
   closestCenter,
@@ -18,6 +19,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { Select } from '@headlessui/react';
 
 interface LayerPanelProps {
   layers: Layer[];
@@ -25,8 +27,10 @@ interface LayerPanelProps {
   setActiveLayer: (layer: Layer) => void;
   addLayer: () => void;
   removeLayer: (id: string) => void;
+  updateLayerType: (id: string, type: string) => void;
   updateLayerVisibility: (id: string, visible: boolean) => void;
   updateLayerOpacity: (id: string, opacity: number) => void;
+  updateLayerBlendMode: (id: string, blendMode: string) => void;
   moveLayerUp: (layerId: string) => void;
   moveLayerDown: (layerId: string) => void;
 }
@@ -36,8 +40,10 @@ interface SortableLayerItemProps {
   layer: Layer;
   activeLayer: Layer;
   setActiveLayer: (layer: Layer) => void;
+  updateLayerType: (id: string, type: string) => void;
   updateLayerVisibility: (id: string, visible: boolean) => void;
   updateLayerOpacity: (id: string, opacity: number) => void;
+  updateLayerBlendMode: (id: string, blendMode: string) => void;
   removeLayer: (id: string) => void;
   layers: Layer[];
 }
@@ -46,8 +52,10 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
   layer,
   activeLayer,
   setActiveLayer,
+  updateLayerType,
   updateLayerVisibility,
   updateLayerOpacity,
+  updateLayerBlendMode,
   removeLayer,
   layers,
 }) => {
@@ -94,6 +102,46 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
           {layer.name}
         </span>
       </div>
+      
+      <div className = "flex flex-col items-center gap-2">
+        <span className="text-sm text-gray-300">Type</span>
+        <select
+          value={layer.type || 'paint'}
+          onChange={(e) => {
+            updateLayerType(layer.id, e.target.value);
+          }}
+          className="w-24 text-sm"
+        >
+        {LayerTypes.map((type) => (
+          <option key={type.value} value={type.value}>
+            {type.label}
+          </option>
+        ))}
+      </select>
+    </div>
+
+   
+     {
+       layer.type === 'paint' && (
+          <div className = "flex flex-col items-center gap-2">
+           <span className="text-sm text-gray-300">Blend Mode</span>
+           <select
+            value={layer.blendMode || 'normal'}
+            onChange={(e) => {
+              updateLayerBlendMode(layer.id, e.target.value);
+            }}
+            className="w-24 text-sm"
+          >
+          {Object.entries(blendModes).map(([key, value]) => (
+            <option key={key} value={value}>
+              {key.charAt(0) + key.slice(1).toLowerCase().replace(/_/g, ' ')}
+            </option>
+          ))}
+      </select>
+          </div>
+       )
+     }
+  
 
       <input
         type="range"
@@ -104,7 +152,7 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
           e.stopPropagation();
           updateLayerOpacity(layer.id, Number(e.target.value) / 100);
         }}
-        className="w-20"
+        className="w-15"
         onClick={(e) => e.stopPropagation()}
       />
 
@@ -130,7 +178,9 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({
   addLayer,
   removeLayer,
   updateLayerVisibility,
+  updateLayerType,
   updateLayerOpacity,
+  updateLayerBlendMode,
   moveLayerUp,
   moveLayerDown,
 }) => {
@@ -192,8 +242,10 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({
                   layer={layer}
                   activeLayer={activeLayer}
                   setActiveLayer={setActiveLayer}
+                  updateLayerType={updateLayerType}
                   updateLayerVisibility={updateLayerVisibility}
                   updateLayerOpacity={updateLayerOpacity}
+                  updateLayerBlendMode={updateLayerBlendMode}
                   removeLayer={removeLayer}
                   layers={layers}
                 />

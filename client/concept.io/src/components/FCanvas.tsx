@@ -18,8 +18,10 @@ export const FCanvas = ( ) => {
         setActiveLayer={layer.setActiveLayer}
         addLayer={layer.addLayer}
         removeLayer={layer.removeLayer}
+        updateLayerType={layer.updateLayerType}
         updateLayerVisibility={layer.updateLayerVisibility}
         updateLayerOpacity={layer.updateLayerOpacity}
+        updateLayerBlendMode={layer.updateLayerBlendMode}
         moveLayerUp={layer.moveLayerUp}
         moveLayerDown={layer.moveLayerDown}
       />
