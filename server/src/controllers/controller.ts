@@ -1,6 +1,6 @@
 import {Router} from 'express';
 import {Server as SocketServer} from 'socket.io';
-import {Request, Respoonse} from 'express';
+import {Request, Response} from 'express';
 
 /** Base controller class that defines the structure for all controllers in the application.
  It provides a path for the controller and a router to handle requests.

@@ -128,8 +128,11 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
       }
     }
 
-  const updateBrush = () => {
+  const updateBrush = () => { 
       if (canvas ) {
+
+        const currentBrush = canvas.freeDrawingBrush;
+  
         
         if(eraseModeOn) {
           if (!eraserBrush.current) {
@@ -164,36 +167,66 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
             brush = BrushClass ? new BrushClass(canvas) : new fabric.PencilBrush(canvas);
             break;
         }
-  
-        if(brush)
-        {
-          color.a = brushOpacity;
-          brush.color = ColorToString(color);
-          brush.width = lineWidth;
-          
-          brush.shadow = new fabric.Shadow(
-            {
-              blur: shadowBlur,
-              offsetX: shadowOffset,
-              offsetY: shadowOffset,
-              affectStroke: true,
-              color: shadowColor,
-            }
-          );
+        
+        if (brush) {
+    // IMPORTANT: Don't mutate the color state directly
+    const brushColor = { 
+      r: color.r,
+      g: color.g,
+      b: color.b,
+      a: brushOpacity 
+    };
+
+    // If it's a new brush instance, set all properties
+    if (currentBrush && brush.constructor === currentBrush.constructor) {
+      // Same brush type - preserve existing properties
+      brush.width = lineWidth !== undefined ? lineWidth : currentBrush.width;
+      brush.color = ColorToString(brushColor);
+      
+      if (shadowBlur || shadowOffset || shadowColor) {
+        brush.shadow = new fabric.Shadow({
+          blur: shadowBlur,
+          offsetX: shadowOffset,
+          offsetY: shadowOffset,
+          affectStroke: true,
+          color: shadowColor,
+        });
+      } else if (currentBrush.shadow) {
+        brush.shadow = currentBrush.shadow;
+      }
+    } else {
+      // Different brush type - set all properties
+      brush.width = lineWidth;
+      brush.color = ColorToString(brushColor);
+      brush.shadow = new fabric.Shadow({
+        blur: shadowBlur,
+        offsetX: shadowOffset,
+        offsetY: shadowOffset,
+        affectStroke: true,
+        color: shadowColor,
+      });
+    }
+      
+    
           canvas.freeDrawingBrush = brush;
-        }
+        
       }
     }
+  }
 
     // Handle color changes from eyedropper or color picker
     const handleColorChange = (newColor: RGBAColor) => {
-        setPreviousColor(color); // Store current color before changing
-        setColor(newColor);
+        setPreviousColor({...color,
+        a: brushOpacity}); // Store current color before changing
+        setColor({
+          ...newColor,
+          a: brushOpacity
+        });
     }
 
     // Restore the previous color (used when switching back from eyedropper)
     const restorePreviousColor = () => {
-        setColor(previousColor);
+        setColor({...previousColor, a: brushOpacity}); // This mutates state directly, which is bad
     }
 
     const handleErase = () => {
@@ -265,6 +298,7 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
     updateBrush,
     handleErase,
     brushOpacity,
-    setBrushOpacity
+    setBrushOpacity,
+    initializedBrush
   };
 };

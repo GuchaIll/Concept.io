@@ -30,8 +30,8 @@ export const BrushSubmenu = memo(() => {
     const { lineWidth, setLineWidth, brushOpacity, setBrushOpacity, brushType, setBrushType } = useBrush(canvas);
 
     return (
-        <div className="absolute left-[200%] ml-2 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800">
-            <div className="grid grid-cols-2 gap-2">
+        <div className="absolute left-[200%] ml-2 bg-white rounded-lg shadow-lg p-3 space-y-6 dark:bg-gray-800">
+            <div className="grid grid-cols-4 gap-2">
                 {brushItems.map((brush) => (
                     <button
                         key={brush.type}

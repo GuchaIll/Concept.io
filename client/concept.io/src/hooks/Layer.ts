@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as fabric from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
+import { WebSocketService} from '../services/WebSocketService';
+import { generateUserId } from './util';
 
 export const blendModes = {
   NORMAL: 'normal',
@@ -22,10 +24,19 @@ export const blendModes = {
 
 export type BlendMode = typeof blendModes[keyof typeof blendModes];
 
+//background and foreground layers are ai generated and non-editable
+export const LayerTypes = [
+  { value: 'paint', label: 'Paint' },
+  { value: 'background', label: 'Background' },
+  { value: 'foreground', label: 'Foreground' },
+]
+
+export type LayerType = typeof LayerTypes[number]['value'];
 
 export interface Layer {
   id: string;
   name: string;
+  type?: LayerType;
   objects: string[];
   visible: boolean;
   opacity: number;
@@ -39,6 +50,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
   const [layers, setLayers] = useState<Layer[]>([{
     id: 'base',
     name: 'Base Layer',
+    type: 'paint',
     objects: [],
     visible: true,
     opacity: 1,
@@ -46,6 +58,20 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     locked: false
   }]);
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
+  const [wsService, setWsService] = useState<any>(null);
+
+  useEffect(() => {
+    if (canvas && !wsService)
+    {
+      const userId = generateUserId();
+      const roomId = window.location.pathname.split('/').pop() || 'default-room';
+      const wsURL = process.env.NODE_ENV === 'production' ? `wss://${window.location.host}` : 'ws://localhost:5000';
+      const ws = new WebSocketService(wsURL,userId, roomId);
+      ws.setCanvas(canvas);
+      setWsService(ws);
+
+    }
+  }, [canvas, wsService]);
 
   const getLayerIndexByID = (layerID: string) => {
     return layers.findIndex(layer => layer.id === layerID);
@@ -85,6 +111,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     }
   };
 
+  
   const updateLayerVisibility = (layerId: string, visible: boolean) => {
     if (!canvas) return;
     setLayers(layers.map(layer => 
@@ -93,6 +120,43 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         : layer
     ));
   };
+
+  const updateLayerBlendMode = (layerId: string, blendMode: string) => {
+    if (!canvas) return;
+    setLayers(layers.map(layer => 
+      layer.id === layerId 
+        ? { ...layer, blendMode: blendMode as BlendMode } 
+        : layer
+    ));
+  }
+
+  //Setting layer type to non paint modes makes it non-editable
+  const updateLayerType = (layerId: string, type: string) => {
+    if (!canvas) return;
+    setLayers(layers.map(layer =>
+      layer.id === layerId
+        ? { ...layer, type: type as LayerType }
+        : layer
+    ));
+
+    if(type !== 'paint')
+    {
+      const objects = canvas.getObjects().filter(obj => obj.layerId === layerId);
+      if(!objects) return;
+
+      objects.forEach(obj => {
+        obj.selectable = false;
+        obj.evented = false;
+        obj.lockMovementX = true;
+        obj.lockMovementY = true;
+        obj.lockScalingX = true;
+        obj.lockScalingY = true;
+        obj.lockRotation = true;
+      });
+
+      canvas.renderAll();
+    }
+  }
 
   const updateLayerOpacity = (layerId: string, opacity: number) => {
     if (!canvas) return;
@@ -246,6 +310,11 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
           : layer
       )
     );
+
+    wsService?.sendCanvasEvent('layer:updated', {
+      layers,
+      activeLayer
+    })
     
     console.log('Updated object with ID:', objectId, 'in layer:', activeLayer.id);
   }
@@ -258,6 +327,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     setActiveLayer,
     addLayer,
     removeLayer,
+    updateLayerType,
     updateLayerVisibility,
     updateLayerOpacity,
     addObjectToLayer,
@@ -270,6 +340,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     moveLayerUp,
     moveLayerDown,
     toggleLayerLock,
-    updateLayers
+    updateLayers,
+    updateLayerBlendMode
   };
 };

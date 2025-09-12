@@ -39,7 +39,7 @@ export const ShapeSubmenu = memo(() => {
 
   return (
     <div className="absolute left-[200%] ml-2 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800">
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
 
         {shapeData.map((shape) => (
           <button

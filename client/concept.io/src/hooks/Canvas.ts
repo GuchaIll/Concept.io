@@ -128,13 +128,33 @@ export const useCanvas = (config?: CanvasConfig) => {
     history.saveToHistory(e.target);
   }, [layer, history]);
 
+  const handleObjectModified = useCallback((e: any) => {
+    if (!e.target) return;
+    
+    // Update layers
+    layer.updateLayers(e);
+    
+    // Save to history
+    history.saveToHistory(e.target);
+  }, [layer, history]);
 
+  const handleObjectRemoved = useCallback((e: any) => {
+    if (!e.target) return;
+    
+    // Update layers
+    layer.updateLayers(e);
+    
+    // Save to history
+    history.saveToHistory(e.target);
+  }, [layer, history]);
 
   useEffect(() => {
     if (!canvas) return;
 
     // Set up event listeners
     canvas.on('object:added', handleObjectAdded);
+    canvas.on('object:modified', handleObjectModified);
+    canvas.on('object:removed', handleObjectRemoved);
     window.addEventListener('resize', handleResize);
     window.addEventListener('keydown', handleKeyEvents);
 
