@@ -1,14 +1,16 @@
 import { FCanvas } from '../components/FCanvas'
 import { ToolProvider } from '../contexts/ToolContext'
-import {CanvasProvider} from '../contexts/CanvasContext'
+import {CanvasProvider, useCanvasContext} from '../contexts/CanvasContext'
+import VoiceAssistantRender from '../components/Assistant/VoiceAssistantRender'
+
 
 const Canvas = () => {
   return (
     <ToolProvider>
       <CanvasProvider>
-        <div className="w-full h-full">
+          <VoiceAssistantRender />
           <FCanvas />
-        </div>
+
       </CanvasProvider>
     </ToolProvider>
   )

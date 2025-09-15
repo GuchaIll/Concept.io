@@ -25,13 +25,13 @@ const brushItems: BrushItem[] = [
     { type: "texture", icon: Image, label: "Texture Pattern", hasSubmenu: false },
 ];
 
-export const BrushSubmenu = memo(() => {
-    const { canvas } = useCanvasContext();
-    const { lineWidth, setLineWidth, brushOpacity, setBrushOpacity, brushType, setBrushType } = useBrush(canvas);
+export const BrushSubmenu = memo((brushProps : ReturnType<typeof useBrush>) => {
+    
+    const { lineWidth, setLineWidth, brushOpacity, setBrushOpacity, brushType, setBrushType } = brushProps;
 
     return (
-        <div className="absolute left-[200%] ml-2 bg-white rounded-lg shadow-lg p-3 space-y-6 dark:bg-gray-800">
-            <div className="grid grid-cols-4 gap-2">
+        <div className="absolute min-w-[220px] left-[200%] ml-2 bg-white rounded-lg top-1/2 -translate-y-1/2 shadow-xl p-3 space-y-6 dark:bg-gray-800">
+            <div className="grid grid-cols-4 gap-8">
                 {brushItems.map((brush) => (
                     <button
                         key={brush.type}

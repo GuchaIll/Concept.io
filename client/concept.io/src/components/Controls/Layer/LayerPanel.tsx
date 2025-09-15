@@ -10,6 +10,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
+import SaveSubmenu from '../../Submenu/SaveSubmenu';
 
 import {
   arrayMove,
@@ -32,6 +33,7 @@ interface LayerPanelProps {
   updateLayerOpacity: (id: string, opacity: number) => void;
   updateLayerBlendMode: (id: string, blendMode: string) => void;
   moveLayerUp: (layerId: string) => void;
+  switchLayer: (layer: Layer) => void;
   moveLayerDown: (layerId: string) => void;
 }
 
@@ -45,6 +47,7 @@ interface SortableLayerItemProps {
   updateLayerOpacity: (id: string, opacity: number) => void;
   updateLayerBlendMode: (id: string, blendMode: string) => void;
   removeLayer: (id: string) => void;
+  switchLayer: (layer: Layer) => void;
   layers: Layer[];
 }
 
@@ -57,6 +60,7 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
   updateLayerOpacity,
   updateLayerBlendMode,
   removeLayer,
+  switchLayer,
   layers,
 }) => {
   const {
@@ -77,9 +81,13 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className={`flex items-center gap-2 p-2 rounded cursor-move ${
+      className={`flex items-center text-xs gap-2 p-2 rounded cursor-move ${
         activeLayer.id === layer.id ? 'bg-blue-700' : 'bg-gray-700'
       }`}
+      onClick={(e) => {
+        e.stopPropagation();
+        switchLayer(layer);
+      }}
     >
       <div className="flex items-center gap-2 flex-1" {...listeners}>
         <input
@@ -89,11 +97,11 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
             e.stopPropagation();
             updateLayerVisibility(layer.id, e.target.checked);
           }}
-          className="w-4 h-4"
+          className="w-4 h-4 text-xs"
           onClick={(e) => e.stopPropagation()}
         />
         <span 
-          className="text-white"
+          className="text-white text-xs"
           onClick={(e) => {
             e.stopPropagation();
             setActiveLayer(layer);
@@ -103,17 +111,17 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
         </span>
       </div>
       
-      <div className = "flex flex-col items-center gap-2">
+      <div className = "flex flex-col items-center gap-1 max-w-[60px]">
         <span className="text-sm text-gray-300">Type</span>
         <select
           value={layer.type || 'paint'}
           onChange={(e) => {
             updateLayerType(layer.id, e.target.value);
           }}
-          className="w-24 text-sm"
+          className="w-18 text-xs"
         >
         {LayerTypes.map((type) => (
-          <option key={type.value} value={type.value}>
+          <option key={type.value} value={type.value} className="text-xs text-center">
             {type.label}
           </option>
         ))}
@@ -123,14 +131,14 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
    
      {
        layer.type === 'paint' && (
-          <div className = "flex flex-col items-center gap-2">
+          <div className = "flex flex-col items-center gap-1 max-w-[80px]">
            <span className="text-sm text-gray-300">Blend Mode</span>
            <select
             value={layer.blendMode || 'normal'}
             onChange={(e) => {
               updateLayerBlendMode(layer.id, e.target.value);
             }}
-            className="w-24 text-sm"
+            className="w-20 text-xs text-center"
           >
           {Object.entries(blendModes).map(([key, value]) => (
             <option key={key} value={value}>
@@ -183,6 +191,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({
   updateLayerBlendMode,
   moveLayerUp,
   moveLayerDown,
+  switchLayer,
 }) => {
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -247,6 +256,7 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({
                   updateLayerOpacity={updateLayerOpacity}
                   updateLayerBlendMode={updateLayerBlendMode}
                   removeLayer={removeLayer}
+                  switchLayer={switchLayer}
                   layers={layers}
                 />
               ))}
@@ -254,6 +264,9 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({
           </SortableContext>
         </DndContext>
       </div>
+      <div>
+      </div>
+      <SaveSubmenu />
     </div>
   );
 };

@@ -38,14 +38,14 @@ export const ShapeSubmenu = memo(() => {
   }));
 
   return (
-    <div className="absolute left-[200%] ml-2 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800">
-      <div className="grid grid-cols-3 gap-2">
+    <div className="absolute left-[200%] min-w-[220px] ml-2 top-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl p-3 space-y-4 dark:bg-gray-800">
+      <div className="grid grid-cols-3 gap-8">
 
         {shapeData.map((shape) => (
           <button
             key={shape.type}
             onClick={() => { createSelectedShape(shape.type);}}
-            className={`p-2 rounded ${shapeType === shape.type ? 'bg-indigo-100' : 'hover:bg-gray-100'}`}
+            className={`w-10 h-10 flex items-center justify-center rounded ${shapeType === shape.type ? 'bg-indigo-100' : 'hover:bg-gray-100'}`}
           >
             {shape.icon}
           </button>
@@ -53,8 +53,8 @@ export const ShapeSubmenu = memo(() => {
         
         {/* Add other shape buttons */}
       </div>
-      <div className="space-y-2">
-        <label className="flex items-center gap-2">
+      <div className="space-y-2 mb-0">
+        <label className="flex items-center gap-6">
           <input //TODO: display fill color for the shape
             type="checkbox"
             checked={fillShape}
@@ -62,7 +62,7 @@ export const ShapeSubmenu = memo(() => {
           />
           <span className="text-sm">Fill Shape</span>
         </label>
-        <div>
+        <div className = "mt-0">
           <label className="text-sm">Stroke Width</label>
           <input
             type="range"

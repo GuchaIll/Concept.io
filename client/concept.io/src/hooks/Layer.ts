@@ -24,6 +24,24 @@ export const blendModes = {
 
 export type BlendMode = typeof blendModes[keyof typeof blendModes];
 
+const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
+        normal: 'source-over',
+        multiply: 'multiply',
+        screen: 'screen',
+        overlay: 'overlay',
+        darken: 'darken',
+        lighten: 'lighten',
+        'color-dodge': 'lighter', // approximate
+        'color-burn': 'darken',   // approximate
+        'hard-light': 'hard-light',
+        'soft-light': 'soft-light',
+        difference: 'difference',
+        exclusion: 'exclusion',
+        'hsl-hue': 'hue',
+        'hsl-saturation': 'saturation',
+        'hsl-luminosity': 'luminosity',
+      };
+
 //background and foreground layers are ai generated and non-editable
 export const LayerTypes = [
   { value: 'paint', label: 'Paint' },
@@ -44,6 +62,7 @@ export interface Layer {
   group?: string;
   locked?: boolean;
   blendMode?: BlendMode;
+  CachedBitmap?: fabric.FabricImage;
 }
 
 export const useLayers = (canvas: fabric.Canvas | null) => {
@@ -55,17 +74,19 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     visible: true,
     opacity: 1,
     zIndex: 0,
-    locked: false
+    locked: false,
+    blendMode: 'normal'
   }]);
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
   const [wsService, setWsService] = useState<any>(null);
+  const [switchingLayer, setSwitchingLayer] = useState<boolean>(false);
 
   useEffect(() => {
     if (canvas && !wsService)
     {
       const userId = generateUserId();
       const roomId = window.location.pathname.split('/').pop() || 'default-room';
-      const wsURL = process.env.NODE_ENV === 'production' ? `wss://${window.location.host}` : 'ws://localhost:5000';
+      const wsURL = 'http://localhost:5000';
       const ws = new WebSocketService(wsURL,userId, roomId);
       ws.setCanvas(canvas);
       setWsService(ws);
@@ -286,7 +307,63 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         )
       )
     }
-  
+    
+  const switchLayer = (layer: Layer) => {
+  if (!canvas || switchingLayer || activeLayer.id === layer.id) return;
+  setSwitchingLayer(true);
+
+  // 1. Snapshot previous active layer
+  const prevObjects = canvas.getObjects().filter(obj => obj.layerId === activeLayer.id);
+  const prevDataUrl = canvas.toDataURL({ format: "png", multiplier: 1 });
+  const img = new Image();
+  img.src = prevDataUrl;
+
+  img.onload = () => {
+    // Remove old cached bitmap if exists
+    const oldCache = canvas.getObjects().find(obj => obj.id === `layer-cache-${activeLayer.id}`);
+    if (oldCache) canvas.remove(oldCache);
+
+    // Add new cached bitmap for previous layer
+    fabric.FabricImage.fromURL(
+      prevDataUrl,
+      undefined,
+      (cachedBitmap: fabric.FabricImage) => {
+        // Configure the cached bitmap
+        cachedBitmap.set({
+          selectable: false,
+          evented: false,
+          opacity: activeLayer.opacity,
+          globalCompositeOperation: (activeLayer.blendMode as GlobalCompositeOperation) || 'source-over',
+          left: 0,
+          top: 0,
+          scaleX: (canvas!.width! as number) / (cachedBitmap.width! as number),
+          scaleY: (canvas!.height! as number) / (cachedBitmap.height! as number),
+          originX: 'left',
+          originY: 'top',
+          id: `layer-cache-${activeLayer.id}`,
+        });
+
+        canvas!.add(cachedBitmap);
+        // Hide previous layer objects
+        prevObjects.forEach((obj: fabric.Object) => (obj.visible = false));
+
+        // 2. Show new active layer objects
+        const newObjects: fabric.Object[] = canvas!.getObjects().filter((obj: any) => obj.layerId === layer.id);
+        newObjects.forEach((obj: fabric.Object) => (obj.visible = true));
+
+        // Remove cached bitmap of new active layer if exists
+        const newCache: fabric.Object | undefined = canvas!.getObjects().find((obj: any) => obj.id === `layer-cache-${layer.id}`);
+        if (newCache) canvas!.remove(newCache);
+
+        setActiveLayer(layer);
+        canvas!.requestRenderAll();
+        setSwitchingLayer(false);
+      }
+      
+    );
+
+  };
+};
 
   const updateLayers = (e : any) => {
     console.log('Object added to canvas:', e);
@@ -301,6 +378,14 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     object.id = objectId;
     object.layerId = activeLayer.id;
     object.erasable = true; // Make object erasable by default
+
+    const mainCtx = canvas?.getContext();
+    if(mainCtx)
+    {
+      mainCtx.save();
+      mainCtx.globalCompositeOperation = 'multiply';
+      mainCtx.restore();
+    }
 
     // Add the object ID to the active layer's objects array
     setLayers(prevLayers => 
@@ -321,7 +406,6 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
 
 
   return {
-    
     layers,
     activeLayer,
     setActiveLayer,
@@ -341,6 +425,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     moveLayerDown,
     toggleLayerLock,
     updateLayers,
-    updateLayerBlendMode
-  };
+    updateLayerBlendMode,
+    switchLayer
+  }
 };
