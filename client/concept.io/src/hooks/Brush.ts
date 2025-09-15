@@ -5,9 +5,10 @@ import type {RGBAColor} from './Color';
 import {ColorToString} from './Color';
 import { useTool } from '../contexts/ToolContext';
 import type { ToolType } from '../types/tools';
+import { useCanvasContext } from '../contexts/CanvasContext';
 
 
-export const useBrush = (canvas: fabric.Canvas | null) => {
+export const useBrush = (canvas : fabric.Canvas | null) => {
   const { state: toolState } = useTool();
   const [brushType, setBrushType] = useState<string>('pencil');
   const [color, setColor] = useState<RGBAColor>({r: 0, g: 0, b: 0, a: 1});
@@ -27,9 +28,10 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
   const squarePatternBrush = useRef<fabric.PatternBrush | null>(null);
   const diamondPatternBrush = useRef<fabric.PatternBrush | null>(null);
   const texturePatternBrush = useRef<fabric.PatternBrush | null>(null);
+  
 
   const initializePatternBrushes = () => {
-        if(canvas && fabric.PatternBrush) {
+        if(canvas && !initializedBrush){
             setInitializedBrush(true);
           //vertical line brush
           vLinePatternBrush.current = new fabric.PatternBrush(canvas);
@@ -48,7 +50,7 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
           ctx!.stroke();
   
           return patternCanvas;
-        };
+      };
   
         // Horizontal lines brush
       hLinePatternBrush.current = new fabric.PatternBrush(canvas);
@@ -124,13 +126,14 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
         //eraser brush
         eraserBrush.current = new EraserBrush(canvas);
         eraserBrush.current.width = lineWidth;
+
+        canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
   
       }
     }
 
   const updateBrush = () => { 
       if (canvas ) {
-
         const currentBrush = canvas.freeDrawingBrush;
   
         
@@ -143,7 +146,7 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
           return;
         }
   
-        let brush : fabric.BaseBrush | null = null;
+        let brush : fabric.BaseBrush | null = currentBrush ?? null;
   
         switch(brushType){
           case 'hline':
@@ -163,13 +166,11 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
             break;
           
           default:
-            const BrushClass = (fabric as any)[brushType + 'Brush'];
-            brush = BrushClass ? new BrushClass(canvas) : new fabric.PencilBrush(canvas);
             break;
         }
         
         if (brush) {
-    // IMPORTANT: Don't mutate the color state directly
+   
     const brushColor = { 
       r: color.r,
       g: color.g,
@@ -177,42 +178,28 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
       a: brushOpacity 
     };
 
-    // If it's a new brush instance, set all properties
-    if (currentBrush && brush.constructor === currentBrush.constructor) {
-      // Same brush type - preserve existing properties
-      brush.width = lineWidth !== undefined ? lineWidth : currentBrush.width;
+    // Same brush type - preserve existing properties
+      brush.width = lineWidth;
       brush.color = ColorToString(brushColor);
       
-      if (shadowBlur || shadowOffset || shadowColor) {
-        brush.shadow = new fabric.Shadow({
+      
+      brush.shadow = new fabric.Shadow({
           blur: shadowBlur,
           offsetX: shadowOffset,
           offsetY: shadowOffset,
           affectStroke: true,
           color: shadowColor,
-        });
-      } else if (currentBrush.shadow) {
-        brush.shadow = currentBrush.shadow;
-      }
-    } else {
-      // Different brush type - set all properties
-      brush.width = lineWidth;
-      brush.color = ColorToString(brushColor);
-      brush.shadow = new fabric.Shadow({
-        blur: shadowBlur,
-        offsetX: shadowOffset,
-        offsetY: shadowOffset,
-        affectStroke: true,
-        color: shadowColor,
       });
-    }
       
-    
-          canvas.freeDrawingBrush = brush;
-        
+      if (brush.shadow) {
+        brush.shadow = brush.shadow;
       }
+    
+      canvas.freeDrawingBrush = brush;
+      console.log('Brush updated:', { brushType, color: brushColor, lineWidth, shadowColor, shadowBlur, shadowOffset, eraseModeOn });
     }
   }
+}
 
     // Handle color changes from eyedropper or color picker
     const handleColorChange = (newColor: RGBAColor) => {
@@ -252,26 +239,27 @@ export const useBrush = (canvas: fabric.Canvas | null) => {
     
     // Effect to track tool changes and handle color restoration
     useEffect(() => {
-        const currentTool = toolState.activeToolId;
+        // const currentTool = toolState.activeToolId;
         
-        // Skip if no tool change
-        if (!currentTool || currentTool === previousTool) return;
+        // // Skip if no tool change
+        // if (!currentTool || currentTool === previousTool) return;
 
-        console.log('Tool changed:', { previous: previousTool, current: currentTool });
+        // console.log('Tool changed:', { previous: previousTool, current: currentTool });
         
-        // If we're switching back to brush from eyedropper, restore the previous color
-        if (currentTool === 'brush' && previousTool === 'Eyedropper') {
-            console.log('Restoring previous color:', previousColor);
-            restorePreviousColor();
-        }
+        // // If we're switching back to brush from eyedropper, restore the previous color
+        // if (currentTool === 'brush' && previousTool === 'Eyedropper') {
+        //     console.log('Restoring previous color:', previousColor);
+        //     restorePreviousColor();
+        // }
         
-        // Update previous tool
-        setPreviousTool(currentTool);
+        // // Update previous tool
+        // setPreviousTool(currentTool);
     }, [toolState.activeToolId, previousTool, previousColor]);
 
     // Effect to handle brush updates
     useEffect(() => {
         if (!canvas) return;
+        console.log('Updating brush with settings:', { brushType, color, lineWidth, shadowColor, shadowBlur, shadowOffset, eraseModeOn, brushOpacity });
         if(!initializedBrush) initializePatternBrushes();
         updateBrush();
     }, [canvas, brushType, color, lineWidth, shadowColor, shadowBlur, shadowOffset, eraseModeOn, brushOpacity]);

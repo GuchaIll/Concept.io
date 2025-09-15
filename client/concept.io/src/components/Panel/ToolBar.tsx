@@ -26,7 +26,7 @@ export const ToolBar = memo((brushProps : ReturnType<typeof useBrush>) => {
               <>
                 {tool.submenuType === 'shape' && <ShapeSubmenu />}
                 {tool.submenuType === 'text' && <TextSubmenu />}
-                {tool.submenuType === 'brush' && <BrushSubmenu />}
+                {tool.submenuType === 'brush' && <BrushSubmenu {...brushProps} />}
               </>
             )}
           </div>

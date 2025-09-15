@@ -5,7 +5,8 @@ import { useHistory } from './History';
 import { useLayers } from './Layer';
 import { useEraser } from './Eraser';
 import { useEyeDropper } from './EyeDropper';
-import { useBrush } from './Brush';
+import {useBrush} from './Brush';
+// import { useBrushContext } from '../contexts/BrushContext';
 import { useFill } from './Fill';
 
 export interface CanvasConfig {
@@ -29,8 +30,6 @@ export const useCanvas = (config?: CanvasConfig) => {
   const history = useHistory(canvas);
   const layer = useLayers(canvas);
   const { EraseModeOn, toggleEraseMode } = useEraser(canvas);
-  
-  // Initialize brush with current tool state
   const brushProps = useBrush(canvas);
   
   // Initialize eyedropper with color callback
@@ -122,7 +121,7 @@ export const useCanvas = (config?: CanvasConfig) => {
     if (!e.target) return;
     
     // Update layers
-    layer.updateLayers(e);
+    layer.updateLayers?.(e);
     
     // Save to history
     history.saveToHistory(e.target);
