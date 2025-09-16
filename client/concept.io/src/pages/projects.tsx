@@ -1,6 +1,7 @@
 
 import { ProjectGalleryMasonry } from '../components/ProjectGalleryMasonry';
 
+
 const projects = [
   { 
     id: '1', 
@@ -45,5 +46,10 @@ const projects = [
 ];
 
 export default function ProjectsPage() {
-  return <ProjectGalleryMasonry projects={projects} />;
+  return (
+    
+   
+      <ProjectGalleryMasonry projects={projects} />
+   
+  );
 }
