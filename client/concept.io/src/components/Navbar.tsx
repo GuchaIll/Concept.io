@@ -8,6 +8,7 @@ const navigation = [
   { name: 'Team', href: '/team', current: false },
   { name: 'Projects', href: '/projects', current: false },
   { name: 'Canvas', href: '/canvas', current: false },
+    
 ]
 
 function classNames(...classes : (string | boolean)[]) {
@@ -94,7 +95,7 @@ export default function Example() {
                 >
                   <MenuItem>
                     <Link
-                      to="#"
+                      to="/profile"
                       className="block px-4 py-2 text-sm text-gray-700 hover:bg-[#7C4585]/10 hover:text-[#3D365C] transition-colors duration-200"
                     >
                       Your profile
