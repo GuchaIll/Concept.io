@@ -28,7 +28,8 @@ export class WebSocketService
         }
 
         this.ws.onmessage = (message) => {
-            const data: CanvasEvent = JSON.parse(message.data);
+            console.log(message);
+            const data: CanvasEvent = JSON.parse(message['data']);
             if(data.userId !== this.userId)
             {
                 this.handleCanvasEvent(data);
@@ -77,7 +78,8 @@ export class WebSocketService
 
     private handleCanvasEvent(event: CanvasEvent) { 
         if(!this.canvas) return;
-
+        
+        console.log("client received event: ", event.type);
         switch(event.type) {
             case 'object:added':
                 fabric.util.enlivenObjects([event.payload]).then((objects) => {

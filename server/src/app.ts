@@ -7,6 +7,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import helmet from 'helmet';
 import compression from 'compression';
+import {WebSocketServer} from "./WebSocketServer";
 
 //TODO: add socket.io support dynamic update
 class App {
@@ -17,6 +18,7 @@ class App {
     public clientDir: string;
     public url: string;
     public host: string;
+    public wsServer: WebSocketServer;
 
     constructor(
         controllers: Controller[],
@@ -30,7 +32,9 @@ class App {
         }
     ){
         this.app = express();
-         this.server = createServer(this.app);
+        this.server = createServer(this.app);
+        
+        this.wsServer = new WebSocketServer(this.server);
 
         this.port = params.port;
         this.host = params.host;
@@ -62,6 +66,11 @@ class App {
 
         this.app.use(express.json()); //for parsing request's json body
         this.app.use(express.urlencoded({ extended: true }));//for decoding the encoded url
+
+        this.app.get('/', (req, res) => {
+            res.json({ message: 'Server is running' });
+        });
+    
         
     }
 

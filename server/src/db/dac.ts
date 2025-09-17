@@ -4,11 +4,14 @@
 //accessed by models which are used by controllers
 
 import { inherits } from "util";
+import {CanvasEvent} from "../common/CanvasEvent";
 
 export interface IDatabase {
     connect(): Promise<void>;
     disconnect(): Promise<void>;
     inherits(): Promise<void>;
+    saveCanvasEventToHistory(e : CanvasEvent) : Promise<void>;
+    getAllCanvasEventsFromHistory(): Promise<CanvasEvent[]>;
 
 }
 
@@ -25,6 +28,8 @@ class DAC {
         }
         DAC._db = db;
     }
+    
+    
 }
 
 export default DAC;

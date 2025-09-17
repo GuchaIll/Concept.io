@@ -14,6 +14,6 @@ const app = new App([
     host: HOST,
     port: PORT,
     url: `${HOST}${ENV === 'LOCAL' ? ':' + PORT.toString() : ''}`,
-   db: STAGE === 'EARLY' ? new InMemoryDatabase() : new MongoDBDatabase(), // Use InMemoryDatabase for early stage, MongoDBDatabase for production
+    db: STAGE === 'EARLY' ? new InMemoryDatabase() : new MongoDBDatabase(), // Use InMemoryDatabase for early stage, MongoDBDatabase for production
 });
 app.listen();

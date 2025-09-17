@@ -1,5 +1,8 @@
 import WebSocket, { WebSocketServer as WebSocketServerType } from 'ws';
 import {Server} from 'http';
+import {CanvasEvent} from "./common/CanvasEvent";
+import DAC, { IDatabase } from './db/dac';
+import {InMemoryDatabase} from "./db/inMemory.db";
 import { queryObjects } from 'v8';
 
 // Collection of client websocket connections for current room
@@ -8,12 +11,6 @@ interface Room {
 
 }
 
-interface CanvasEvent {
-    type: string;
-    payload: any;
-    userId: string;
-    roomId: string;
-}
 
 export class WebSocketServer {
     private wss: WebSocketServerType;
@@ -28,19 +25,28 @@ export class WebSocketServer {
         this.wss.on('connection', (ws: WebSocket) => {
             console.log('New client connected');
 
-            ws.on('message', (message: string) => {
+            ws.on('message', (data, isBinary) => {
+                const rawMessage = isBinary ? data.toString() : data.toString();
+
                 try {
-                    const data: CanvasEvent = JSON.parse(message.toString());
-                    
-                    switch(data.type) {
+                    const extractedData = JSON.parse(rawMessage.toString()) as CanvasEvent;
+
+                    switch (extractedData.type) {
                         case 'join':
-                            this.handleJoinRoom(ws, data);
+                            this.handleJoinRoom(ws, extractedData);
                             break;
+
                         default:
-                            this.broadcastToRoom(data.roomId, message, ws);
+                            console.log(
+                                'Received message:',
+                                extractedData.type,
+                                extractedData.payload,
+                                extractedData.userId,
+                                extractedData.roomId
+                            );
+                            this.broadcastToRoom(extractedData.roomId, rawMessage, ws);
                             break;
                     }
-                    
                 } catch (error) {
                     console.error('Error parsing message:', error);
                 }
@@ -49,11 +55,10 @@ export class WebSocketServer {
             ws.on('close', () => {
                 this.removeFromRooms(ws);
                 console.log('Client disconnected');
-               
             });
         });
     }
-
+    
     private handleJoinRoom(ws: WebSocket, data: CanvasEvent) {
         const { roomId } = data.payload;
 
@@ -64,14 +69,22 @@ export class WebSocketServer {
         this.rooms[roomId].push(ws);
         console.log(`Client joined room: ${roomId}`);
     }
+    
+    private sendCanvasHistory(ws: WebSocket, data: CanvasEvent) {
+        
+    }
 
     private broadcastToRoom(roomId: string, message: string, sender: WebSocket) {
         const clients = this.rooms[roomId] || [];
         clients.forEach(client => {
             if (client !== sender && client.readyState === WebSocket.OPEN) {
-                client.send(message);
+                client.send(message); 
             }
         });
+    }
+    
+    private saveToRoomHistory(ws: WebSocket, data: CanvasEvent) {
+        
     }
 
     private removeFromRooms(ws: WebSocket) {

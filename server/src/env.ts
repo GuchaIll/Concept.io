@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const STAGE: string = process.env.STAGE ?? 'DEV';
-export const PORT: number = process.env.PORT ? Number(process.env.PORT) : 1000; 
+export const PORT: number = process.env.PORT ? Number(process.env.PORT) : 5000; 
 export const ENV = process.env.ENV ?? 'LOCAL';
 export const HOST: string =
   ENV === 'RENDER'
