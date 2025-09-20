@@ -1,1 +1,13 @@
 @import "tailwindcss";
+
+
+
+
+.fade-mask {
+    mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%, black 90%, transparent 100%);
+    mask-repeat: no-repeat;
+    -webkit-mask-repeat: no-repeat;
+    mask-composite: intersect;
+    -webkit-mask-composite: destination-in;
+}

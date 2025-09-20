@@ -17,7 +17,7 @@ function classNames(...classes : (string | boolean)[]) {
 
 export default function Example() {
   return (
-    <Disclosure as="nav" className="fixed w-full top-0 z-50">
+    <Disclosure as="nav" className="fixed overflow-hidden w-full top-0 z-50">
       {({ open }) => (
       <>
         <div className="w-full bg-[#3D365C]/90 backdrop-blur-md shadow-lg">

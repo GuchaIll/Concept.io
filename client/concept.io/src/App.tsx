@@ -18,7 +18,7 @@ import Profile from './pages/profile'
 function App() {
   return (
     <Router>
-        <div className="min-h-screen pt-16"> {/* Added pt-16 to account for fixed navbar */}
+        <div className="h-screen overflow-hidden relative "> 
           <Navbar />
           <Routes>
             <Route path="/" element={<Home />} />

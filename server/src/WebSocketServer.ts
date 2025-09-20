@@ -1,6 +1,7 @@
 import WebSocket, { WebSocketServer as WebSocketServerType } from 'ws';
 import {Server} from 'http';
-import {CanvasEvent} from "./common/CanvasEvent";
+import {CanvasEvent} from "./common/CanvasEvent"; 
+import {MessageEvent} from "./common/MessageEvent";
 import DAC, { IDatabase } from './db/dac';
 import {InMemoryDatabase} from "./db/inMemory.db";
 import { queryObjects } from 'v8';
@@ -34,6 +35,7 @@ export class WebSocketServer {
                     switch (extractedData.type) {
                         case 'join':
                             this.handleJoinRoom(ws, extractedData);
+                            this.sendCanvasHistory(ws, extractedData.roomId, extractedData);
                             break;
 
                         default:
@@ -45,6 +47,7 @@ export class WebSocketServer {
                                 extractedData.roomId
                             );
                             this.broadcastToRoom(extractedData.roomId, rawMessage, ws);
+                            this.saveToRoomHistory(ws, extractedData);
                             break;
                     }
                 } catch (error) {
@@ -70,8 +73,10 @@ export class WebSocketServer {
         console.log(`Client joined room: ${roomId}`);
     }
     
-    private sendCanvasHistory(ws: WebSocket, data: CanvasEvent) {
-        
+    private sendCanvasHistory(sender: WebSocket, roomId: string, data: CanvasEvent) {
+        DAC.db.getAllCanvasEventsFromHistory().then(history => {
+            sender.send(JSON.stringify(history));
+        })
     }
 
     private broadcastToRoom(roomId: string, message: string, sender: WebSocket) {
@@ -84,7 +89,11 @@ export class WebSocketServer {
     }
     
     private saveToRoomHistory(ws: WebSocket, data: CanvasEvent) {
-        
+          DAC.db.saveCanvasEventToHistory(data);
+    }
+    
+    private saveNewMessageToRoomHistory(ws: WebSocket, data: ) {
+        DAC.db.saveMessageToChatHistory(data);
     }
 
     private removeFromRooms(ws: WebSocket) {

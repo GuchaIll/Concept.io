@@ -1,4 +1,6 @@
 import * as fabric from 'fabric';
+import {UserSessionProfile} from './userSessionProfile'
+
 
 type CanvasEvent = {
     type: 'object:added' | 'object:modified' | 'object:removed' | 'canvas:clear' | 'layer:updated';
@@ -7,18 +9,41 @@ type CanvasEvent = {
     roomId: string;
 };
 
+type MessageEvent = {
+    type: 'message:added' | 'message:modified' | 'message:removed' | 'message:placeholder';
+    payload: any;
+}
+
+
+
 export class WebSocketService
 {
     private ws: WebSocket;
     private canvas: fabric.Canvas | null = null;
     private userId: string;
     private roomId: string;
+    static instance: WebSocketService | null = null;
+    
+    private onMessageAdded?: (message: any) => void;
+    private onMessageModified?: (message: any) => void;
+    private onMessageRemoved?: (message: any) => void;
 
     constructor(url : string, userId: string, roomId: string) {
+        
         this.ws = new WebSocket(url);
         this.userId = userId;
-        this.roomId = roomId;
+        this.roomId = roomId;   
         this.setupWebSocket();
+    }
+
+    static getInstance() {
+        if (WebSocketService.instance == null) {
+            
+            WebSocketService.instance = new WebSocketService(UserSessionProfile.wsURL, UserSessionProfile.userId, UserSessionProfile.roomId );
+            //WebSocketService.instance.setCanvas(canvas);
+            
+        }
+        return WebSocketService.instance;   
     }
 
     private setupWebSocket() {
@@ -42,6 +67,19 @@ export class WebSocketService
 
         
     }
+    
+    setCallbacks( callbacks : {
+        onMessageAdded?: (message: any) => void,
+        onMessageModified?: (message: any) => void,
+        onMessageRemoved?: (message: any) => void,
+    })
+    {
+        this.onMessageAdded = callbacks.onMessageAdded;
+        this.onMessageModified = callbacks.onMessageModified;
+        this.onMessageRemoved = callbacks.onMessageRemoved;
+    }
+    
+    
 
     private joinRoom() {
         this.ws.send(JSON.stringify({
@@ -56,6 +94,10 @@ export class WebSocketService
         this.canvas = canvas;
         this.setUpCanvasListeners();
     }
+    
+  
+    
+    
     private setUpCanvasListeners() {
         if(!this.canvas) return;
         
@@ -75,6 +117,43 @@ export class WebSocketService
         });
 
     }
+    
+
+    
+    //When user began typing new message in chat, send a message box with placeholder text
+    //Remove placeholder if the user stops typing
+    private initiateMessageEvent(user: IUser, message: string, placeHolder: boolean)
+    {
+        const payload = {
+            userId: user.id,
+            userName: user.name,
+            message,
+            placeHolder,
+        }
+        this.sendMessageEvent('message:placeholder', payload, placeHolder);
+    }
+   private handleMessageEvent(messageEvent : MessageEvent) {
+        
+        switch(messageEvent.type) {
+            case 'message:added':
+                this.onMessageAdded?.(messageEvent.payload);
+                break;
+                case 'message:modified':
+                    this.onMessageModified?.(messageEvent.payload);
+                    break;
+                    case 'message:removed':
+                        this.onMessageRemoved?.(messageEvent.payload);
+                        break;
+                        case 'message:placeholder':
+                            this.onMessageAdded?.(messageEvent.payload);
+                            break;
+        }
+        
+        
+        
+   }
+        
+       
 
     private handleCanvasEvent(event: CanvasEvent) { 
         if(!this.canvas) return;
@@ -116,7 +195,7 @@ export class WebSocketService
                 this.canvas?.requestRenderAll();
                 break;
             case 'layer:updated':
-        
+                
                 break;
         }
     }
@@ -128,6 +207,16 @@ export class WebSocketService
             userId: this.userId,
             roomId: this.roomId,
         }));
+    }
+    
+    private sendMessageEvent(type: MessageEvent['type'], payload: any, placeHolder: boolean) {
+        this.ws.send(JSON.stringify({
+            type,
+            payload,
+            userId: this.userId,
+            roomId: this.roomId,
+            placeHolder,
+        }))
     }
         
 }
