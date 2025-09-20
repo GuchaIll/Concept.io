@@ -81,7 +81,7 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
       ref={setNodeRef}
       style={style}
       {...attributes}
-      className={`flex items-center text-xs gap-2 p-2 rounded cursor-move ${
+      className={`flex items-center text-xs overflow-hidden gap-2 p-2 rounded cursor-move overflow ${
         activeLayer.id === layer.id ? 'bg-blue-700' : 'bg-gray-700'
       }`}
       onClick={(e) => {
@@ -112,7 +112,7 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
       </div>
       
       <div className = "flex flex-col items-center gap-1 max-w-[60px]">
-        <span className="text-sm text-gray-300">Type</span>
+       
         <select
           value={layer.type || 'paint'}
           onChange={(e) => {
@@ -126,13 +126,12 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
           </option>
         ))}
       </select>
-    </div>
+   
 
    
      {
        layer.type === 'paint' && (
-          <div className = "flex flex-col items-center gap-1 max-w-[80px]">
-           <span className="text-sm text-gray-300">Blend Mode</span>
+          <>
            <select
             value={layer.blendMode || 'normal'}
             onChange={(e) => {
@@ -146,9 +145,11 @@ const SortableLayerItem: React.FC<SortableLayerItemProps> = ({
             </option>
           ))}
       </select>
-          </div>
+          </>
        )
      }
+
+      </div>
   
 
       <input

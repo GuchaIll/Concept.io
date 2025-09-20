@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import { useCanvasContext } from '../contexts/CanvasContext';
 
-const usePageNav = () => 
+export const useCanvasNav = () => 
 {
     const { canvas } = useCanvasContext();
     const [angle, setAngle] = useState(0);
@@ -60,4 +60,16 @@ const usePageNav = () =>
         });
     }
     
+    return {
+        zoomIn,
+        rotateClockwiseByAngle,
+        rotateClockwiseByAbsoluteAngle,
+        rotateCounterClockwiseByAngle,
+        rotateCounterClockwiseByAbsoluteAngle,
+        zoomLevel,
+        angle,
+        translation,
+        setTranslation,
+    }
 }
+

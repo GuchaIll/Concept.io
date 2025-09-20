@@ -12,7 +12,7 @@ export const ToolBar = memo((brushProps : ReturnType<typeof useBrush>) => {
   const { state } = useTool();
 
   return (
-    <div className="fixed left-4 top-20 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800 z-50">
+    <div className="fixed overflow-hidden left-4 top-20 bg-white rounded-lg shadow-lg p-3 space-y-4 dark:bg-gray-800 z-50">
       <ColorPicker color={brushProps.color} onColorChange={brushProps.setColor} />
       <div className="grid grid-cols-2 gap-2">
          

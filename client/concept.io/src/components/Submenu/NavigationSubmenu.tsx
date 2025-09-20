@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useCanvasContext } from "../../contexts/CanvasContext";
 import type { LucideIcon } from 'lucide-react';
+import {useCanvasNav}  from "../../hooks/CanvasNav";
 
 interface NavItem {
     type: string;
@@ -22,6 +23,7 @@ interface NavItem {
 
 export const NavigationSubmenu = memo(() => {
     const { canvas } = useCanvasContext();
+    const canvasNav = useCanvasNav();
 
     const handleZoom = (zoomIn: boolean) => {
         if (!canvas) return;
@@ -32,8 +34,10 @@ export const NavigationSubmenu = memo(() => {
     //Rotate all objects on the canvas
     const handleRotate = (clockwise: boolean) => {
         if (!canvas) return;
-        //const angle = canvas.angle ?? 0;
-        //canvas.angle = angle + (clockwise ? 90 : -90);
+        if(clockwise)canvasNav.rotateClockwiseByAngle(90);
+        else canvasNav.rotateCounterClockwiseByAngle(90);
+        
+        canvas.requestRenderAll();
     };
 
     const handleHorizontalFlip = (horizontal: boolean) => {

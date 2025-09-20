@@ -6,13 +6,16 @@ import VoiceAssistantRender from '../components/Assistant/VoiceAssistantRender'
 
 const Canvas = () => {
   return (
-    <ToolProvider>
-      <CanvasProvider>
-          <VoiceAssistantRender />
-          <FCanvas />
+      <div className="overflow-hidden no-scrollbar">
+          <ToolProvider>
+              <CanvasProvider>
+                  <VoiceAssistantRender />
+                  <FCanvas />
 
-      </CanvasProvider>
-    </ToolProvider>
+              </CanvasProvider>
+          </ToolProvider>
+      </div>
+   
   )
 }
 
