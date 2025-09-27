@@ -35,6 +35,7 @@ const ChatHistory = () => {
     
     useEffect(() => {
         const ws = WebSocketService.getInstance();
+        if(ws && ws.isConnected()) {
         ws.setCallbacks({
             onMessageAdded: (msg: chatMessage) => {
                 setMessages(messages => [...messages,
@@ -48,7 +49,8 @@ const ChatHistory = () => {
                 ]);
             }
         })
-    })
+    } 
+}, []);  
     return (
         <div className="relative h-64 w-80 rounded-lg">
             {/* Scrollable area */}

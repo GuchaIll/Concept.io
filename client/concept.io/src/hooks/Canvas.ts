@@ -8,6 +8,7 @@ import { useEyeDropper } from './EyeDropper';
 import {useBrush} from './Brush';
 // import { useBrushContext } from '../contexts/BrushContext';
 import { useFill } from './Fill';
+import { useZoomPan } from './ZoomPan';
 
 export interface CanvasConfig {
   width?: number;
@@ -31,6 +32,7 @@ export const useCanvas = (config?: CanvasConfig) => {
   const layer = useLayers(canvas);
   const { EraseModeOn, toggleEraseMode } = useEraser(canvas);
   const brushProps = useBrush(canvas);
+  const zoomPan = useZoomPan(canvas);
   
   // Initialize eyedropper with color callback
   useEyeDropper(canvas, {

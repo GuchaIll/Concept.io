@@ -12,6 +12,7 @@ export const FCanvas = ( ) => {
   const { canvasRef, layer, brushProps } = useCanvasContext();
   const [showInvitationModal, setShowInvitationModal] = useState(false);
   
+  
  
   return (
     <div className="relative w-full h-full overflow-hidden">
@@ -40,7 +41,7 @@ export const FCanvas = ( ) => {
         <p>Kilmu has invited you to join the session.</p>
       </Modal>
         <div className = "fixed bottom-0 right-0 z-50">
-            <ChatHistory />
+            {/* <ChatHistory /> */}
         </div>
         <div className = "fixed bottom-12 left-0 z-50 max-w-[200px] max-h-[200px]">
             <CustomBrushProperties/>
