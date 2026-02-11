@@ -92,7 +92,7 @@ export class WebSocketServer {
           DAC.db.saveCanvasEventToHistory(data);
     }
     
-    private saveNewMessageToRoomHistory(ws: WebSocket, data: ) {
+    private saveNewMessageToRoomHistory(ws: WebSocket, data: MessageEvent) {
         DAC.db.saveMessageToChatHistory(data);
     }
 

@@ -84,15 +84,21 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
   const [switchingLayer, setSwitchingLayer] = useState<boolean>(false);
 
   useEffect(() => {
-    if (canvas && !wsService)
-    {
-      const userId = generateUserId();
-      const roomId = window.location.pathname.split('/').pop() || 'default-room';
-      const wsURL = 'http://localhost:5000';
-      const ws = new WebSocketService(wsURL,userId, roomId);
-      ws.setCanvas(canvas);
-      setWsService(ws);
+    // if (canvas && !wsService)
+    // {
+    //   const userId = generateUserId();
+    //   const roomId = window.location.pathname.split('/').pop() || 'default-room';
+    //   const wsURL = 'http://localhost:5000';
+    //   const ws = new WebSocketService(wsURL,userId, roomId);
+    //   ws.setCanvas(canvas);
+    //   setWsService(ws);
 
+    // }
+    if(!canvas) return;
+    const ws = WebSocketService.getInstance();
+    setWsService(ws);
+    if(ws.isConnected()) {
+      ws.setCanvas(canvas);
     }
   }, [canvas, wsService]);
 

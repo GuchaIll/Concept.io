@@ -18,7 +18,7 @@ import Profile from './pages/profile'
 function App() {
   return (
     <Router>
-        <div className="h-screen overflow-hidden relative "> 
+        <div className="h-screen relative "> 
           <Navbar />
           <Routes>
             <Route path="/" element={<Home />} />

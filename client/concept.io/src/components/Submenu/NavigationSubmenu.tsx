@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { 
     Move, 
     RotateCcw, 
@@ -19,11 +19,13 @@ interface NavItem {
     label: string;
     action: () => void;
     keyBind?: string;
+    toggle?: boolean;
 }
 
 export const NavigationSubmenu = memo(() => {
     const { canvas } = useCanvasContext();
     const canvasNav = useCanvasNav();
+    const [toggleledOn, setToggleledOn] =  useState<boolean>(false);
 
     const handleZoom = (zoomIn: boolean) => {
         if (!canvas) return;
@@ -73,26 +75,33 @@ export const NavigationSubmenu = memo(() => {
         canvas.requestRenderAll();
     };
 
+    const handleMoveToggle = () => 
+    {
+        setToggleledOn(!toggleledOn);
+        console.log('Move tool toggled:', !toggleledOn);
+
+    }
+
     const navItems: NavItem[] = [
-        { type: "move", icon: Move, label: "Move Canvas", action: () => {/* Implement move functionality here if needed */}, keyBind: 'Alt+Drag' },
-        { type: "zoomIn", icon: ZoomIn, label: "Zoom In", action: () => handleZoom(true), keyBind: 'scrollUp' },
-        { type: "zoomOut", icon: ZoomOut, label: "Zoom Out", action: () => handleZoom(false), keyBind: 'scrollDown' },
-        { type: "rotateLeft", icon: RotateCcw, label: "Rotate Left", action: () => handleRotate(false), keyBind: 'Shift+R' },
-        { type: "rotateRight", icon: RotateCw, label: "Rotate Right", action: () => handleRotate(true), keyBind: 'Ctrl+Shift+R' },
-        { type: "flipH", icon: FlipHorizontal, label: "Flip Horizontal", action: () => handleHorizontalFlip(true), keyBind: 'Ctrl+H' },
-        { type: "flipV", icon: FlipVertical, label: "Flip Vertical", action: () => handleVerticalFlip(true), keyBind: 'Ctrl+V' },
-        { type: "reset", icon: Maximize2, label: "Reset View", action: handleReset, keyBind: 'Ctrl+R' },
+        { type: "move", icon: Move, label: "Move Canvas", action: () => handleMoveToggle, keyBind: 'Alt+Drag', toggle: true },
+        { type: "zoomIn", icon: ZoomIn, label: "Zoom In", action: () => handleZoom(true), keyBind: 'scrollUp', toggle: false },
+        { type: "zoomOut", icon: ZoomOut, label: "Zoom Out", action: () => handleZoom(false), keyBind: 'scrollDown', toggle: false },
+        { type: "rotateLeft", icon: RotateCcw, label: "Rotate Left", action: () => handleRotate(false), keyBind: 'Shift+R', toggle: false },
+        { type: "rotateRight", icon: RotateCw, label: "Rotate Right", action: () => handleRotate(true), keyBind: 'Ctrl+Shift+R', toggle: false },
+        { type: "flipH", icon: FlipHorizontal, label: "Flip Horizontal", action: () => handleHorizontalFlip(true), keyBind: 'Ctrl+H', toggle: false },
+        { type: "flipV", icon: FlipVertical, label: "Flip Vertical", action: () => handleVerticalFlip(true), keyBind: 'Ctrl+V', toggle: false },
+        { type: "reset", icon: Maximize2, label: "Reset View", action: handleReset, keyBind: 'Ctrl+R', toggle: false },
     ];
 
     return (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 min-w-[500px] bg-white rounded-lg shadow-xl p-3 dark:bg-gray-800 z-50">
             <div className="grid grid-cols-8 gap-4">
                 {navItems.map((item) => (
-                    <div>
+                    <div key={item.type}>
                     <button
                         key={item.type}
                         onClick={item.action}
-                        className="w-12 h-12 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                        className={`w-12 h-12 flex items-center justify-center rounded ${toggleledOn ? 'hover:text-black bg-gray-100' : 'hover:bg-gray-100 '} `}
                         title={item.label}
                     >
                         <item.icon size={20} />
