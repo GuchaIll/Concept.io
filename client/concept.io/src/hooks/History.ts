@@ -8,7 +8,8 @@ export const useHistory = (canvas: fabric.Canvas | null) => {
 
   const saveToHistory = (object: fabric.Object) => {
     undoStack.current.push(object);
-    //redoStack.current.clear();
+    // Clear redo stack when new action is performed
+    redoStack.current.clear();
   };
 
   const undo = () => {
@@ -26,6 +27,8 @@ export const useHistory = (canvas: fabric.Canvas | null) => {
     const lastObject = redoStack.current.pop();
     if (lastObject) {
       undoStack.current.push(lastObject);
+      // Mark object to skip history save when re-added
+      (lastObject as any)._skipHistory = true;
       canvas.add(lastObject);
       canvas.renderAll();
     }

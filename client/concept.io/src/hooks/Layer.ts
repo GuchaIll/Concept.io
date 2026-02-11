@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as fabric from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocketService} from '../services/WebSocketService';
@@ -42,11 +42,13 @@ const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
         'hsl-luminosity': 'luminosity',
       };
 
-//background and foreground layers are ai generated and non-editable
+//Layer types for different workflows
 export const LayerTypes = [
   { value: 'paint', label: 'Paint' },
-  { value: 'background', label: 'Background' },
-  { value: 'foreground', label: 'Foreground' },
+  { value: 'asset', label: 'Asset' },
+  { value: 'backgroundPlate', label: 'Background Plate' },
+  { value: 'diffusionRegion', label: 'Diffusion Region' },
+  { value: 'lightingOverlay', label: 'Lighting Overlay' },
 ]
 
 export type LayerType = typeof LayerTypes[number]['value'];
@@ -135,11 +137,20 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
   
   const updateLayerVisibility = (layerId: string, visible: boolean) => {
     if (!canvas) return;
+    
+    // Update layer state
     setLayers(layers.map(layer => 
       layer.id === layerId 
         ? { ...layer, visible } 
         : layer
     ));
+    
+    // Update objects on canvas
+    const layerObjects = canvas.getObjects().filter(obj => obj.layerId === layerId);
+    layerObjects.forEach(obj => {
+      obj.visible = visible;
+    });
+    canvas.requestRenderAll();
   };
 
   const updateLayerBlendMode = (layerId: string, blendMode: string) => {
@@ -307,63 +318,61 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         )
       )
     }
+
+  // Update the z-index of all objects based on layer order - call this manually when needed
+  const updateObjectZIndices = useCallback(() => {
+    if (!canvas) return;
     
-  const switchLayer = (layer: Layer) => {
-  if (!canvas || switchingLayer || activeLayer.id === layer.id) return;
-  setSwitchingLayer(true);
+    const allObjects = canvas.getObjects();
+    if (allObjects.length === 0) return;
+    
+    // Sort objects by their layer's zIndex
+    layers.forEach((layer, layerIndex) => {
+      const layerObjects = allObjects.filter(obj => obj.layerId === layer.id);
+      layerObjects.forEach(obj => {
+        // Set visibility based on layer visibility
+        obj.visible = layer.visible;
+        // Set opacity based on layer opacity  
+        if (obj.baseOpacity !== undefined) {
+          obj.opacity = obj.baseOpacity * layer.opacity;
+        }
+      });
+    });
+    
+    canvas.requestRenderAll();
+  }, [canvas, layers]);
+    
+  const switchLayer = (newLayer: Layer) => {
+    // Don't switch if already on this layer or currently switching
+    if (switchingLayer) {
+      console.log('Already switching layers, ignoring');
+      return;
+    }
+    
+    if (activeLayer.id === newLayer.id) {
+      console.log('Already on this layer:', newLayer.id);
+      return;
+    }
 
-  // 1. Snapshot previous active layer
-  const prevObjects = canvas.getObjects().filter(obj => obj.layerId === activeLayer.id);
-  const prevDataUrl = canvas.toDataURL({ format: "png", multiplier: 1 });
-  const img = new Image();
-  img.src = prevDataUrl;
+    console.log('Switching from layer', activeLayer.id, 'to', newLayer.id);
+    
+    setSwitchingLayer(true);
 
-  img.onload = () => {
-    // Remove old cached bitmap if exists
-    const oldCache = canvas.getObjects().find(obj => obj.id === `layer-cache-${activeLayer.id}`);
-    if (oldCache) canvas.remove(oldCache);
-
-    // Add new cached bitmap for previous layer
-    fabric.FabricImage.fromURL(
-      prevDataUrl,
-      undefined,
-      (cachedBitmap: fabric.FabricImage) => {
-        // Configure the cached bitmap
-        cachedBitmap.set({
-          selectable: false,
-          evented: false,
-          opacity: activeLayer.opacity,
-          globalCompositeOperation: (activeLayer.blendMode as GlobalCompositeOperation) || 'source-over',
-          left: 0,
-          top: 0,
-          scaleX: (canvas!.width! as number) / (cachedBitmap.width! as number),
-          scaleY: (canvas!.height! as number) / (cachedBitmap.height! as number),
-          originX: 'left',
-          originY: 'top',
-          id: `layer-cache-${activeLayer.id}`,
-        });
-
-        canvas!.add(cachedBitmap);
-        // Hide previous layer objects
-        prevObjects.forEach((obj: fabric.Object) => (obj.visible = false));
-
-        // 2. Show new active layer objects
-        const newObjects: fabric.Object[] = canvas!.getObjects().filter((obj: any) => obj.layerId === layer.id);
-        newObjects.forEach((obj: fabric.Object) => (obj.visible = true));
-
-        // Remove cached bitmap of new active layer if exists
-        const newCache: fabric.Object | undefined = canvas!.getObjects().find((obj: any) => obj.id === `layer-cache-${layer.id}`);
-        if (newCache) canvas!.remove(newCache);
-
-        setActiveLayer(layer);
-        canvas!.requestRenderAll();
-        setSwitchingLayer(false);
+    try {
+      // Just update the active layer - all layers remain visible based on their visibility setting
+      setActiveLayer(newLayer);
+      
+      if (canvas) {
+        canvas.requestRenderAll();
       }
       
-    );
-
+      console.log('Layer switched to:', newLayer.name);
+    } catch (error) {
+      console.error('Error switching layers:', error);
+    } finally {
+      setSwitchingLayer(false);
+    }
   };
-};
 
   const updateLayers = (e : any) => {
     console.log('Object added to canvas:', e);
@@ -404,9 +413,23 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     console.log('Updated object with ID:', objectId, 'in layer:', activeLayer.id);
   }
 
+  const reorderLayers = (oldIndex: number, newIndex: number) => {
+    setLayers(prevLayers => {
+      const newLayers = [...prevLayers];
+      const [removed] = newLayers.splice(oldIndex, 1);
+      newLayers.splice(newIndex, 0, removed);
+      // Update zIndex for all layers
+      return newLayers.map((layer, i) => ({
+        ...layer,
+        zIndex: i
+      }));
+    });
+  };
+
 
   return {
     layers,
+    setLayers,
     activeLayer,
     setActiveLayer,
     addLayer,
@@ -426,6 +449,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     toggleLayerLock,
     updateLayers,
     updateLayerBlendMode,
-    switchLayer
+    switchLayer,
+    reorderLayers
   }
 };

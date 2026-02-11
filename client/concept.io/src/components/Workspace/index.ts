@@ -1,0 +1,11 @@
+export { WorkspaceLayout } from './WorkspaceLayout';
+export { CanvasArea } from './CanvasArea';
+export { TopUtilityBar } from './TopUtilityBar';
+export { ToolRail } from './ToolRail';
+export { LayersPanel } from './LayersPanel';
+export { BottomActionBar } from './BottomActionBar';
+export { AssetLibraryButton } from './AssetLibraryButton';
+export { BrushEditor } from './BrushEditor';
+export { ColorPalette } from './ColorPalette';
+export { SelectToolPanel } from './SelectToolPanel';
+export { SelectionSmartTag } from './SelectionSmartTag';
