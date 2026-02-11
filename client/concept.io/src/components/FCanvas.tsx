@@ -1,57 +1,143 @@
-import {ToolBar} from './Panel/ToolBar';
-import { LayerPanel } from './Controls/Layer/LayerPanel';
 import { useCanvasContext } from '../contexts/CanvasContext';
-import { NavigationSubmenu } from './Submenu/NavigationSubmenu';
-import SessionParticipants from './Editor/SessionParticipants';
 import Modal from './Modal/SessionInvitationModal';
-import ChatHistory from './ChatHistory';
 import { useState } from 'react';
-import CustomBrushProperties from "./Editor/CustomBrushProperties.tsx";
+import {
+  WorkspaceLayout,
+  CanvasArea,
+  TopUtilityBar,
+  ToolRail,
+  LayersPanel,
+  BottomActionBar,
+  AssetLibraryButton,
+} from './Workspace';
+import { SelectionSmartTag } from './Workspace/SelectionSmartTag';
+import type { LayerType } from '../hooks/Layer';
 
-export const FCanvas = ( ) => {
-  const { canvasRef, layer, brushProps } = useCanvasContext();
+export const FCanvas = () => {
+  const { canvasRef, layer, brushProps, zoomLevel, zoomIn, zoomOut, resetZoom, history, selection } = useCanvasContext();
   const [showInvitationModal, setShowInvitationModal] = useState(false);
-  
- 
+  const [_showAssetLibrary, setShowAssetLibrary] = useState(false);
+
+  // Collaborators for header avatars only
+  const collaborators = [
+    { id: '1', name: 'Alex K.', avatarUrl: '/avatars/cat.png' },
+    { id: '2', name: 'Sarah M.', avatarUrl: '/avatars/panda.png' },
+  ];
+
+  const handleUndo = () => {
+    history.undo();
+    console.log('Undo');
+  };
+
+  const handleRedo = () => {
+    history.redo();
+    console.log('Redo');
+  };
+
+  const handleDiffusionPrompt = () => {
+    // TODO: Open diffusion prompt modal
+    console.log('Open diffusion prompt');
+  };
+
+  const handleLayerTypeChange = (layerId: string, type: LayerType) => {
+    layer.updateLayerType(layerId, type);
+  };
+
+  const handleReorderLayers = (oldIndex: number, newIndex: number) => {
+    layer.reorderLayers(oldIndex, newIndex);
+  };
+
+  const handleSelectionApply = () => {
+    console.log('Apply action:', selection.activeAction, 'on selection');
+    // TODO: Implement action based on selection.activeAction
+    // For now, just clear the selection
+    selection.clearSelection();
+  };
+
+  // Calculate smart tag position (center-bottom of selection)
+  const getSmartTagPosition = () => {
+    if (!selection.selectionBounds) return { x: 0, y: 0 };
+    return {
+      x: selection.selectionBounds.left + selection.selectionBounds.width / 2,
+      y: selection.selectionBounds.top + selection.selectionBounds.height,
+    };
+  };
+
   return (
-    <div className="relative w-full h-full overflow-hidden">
-      <ToolBar
-        {...brushProps}
-        handleColorChange={brushProps.handleColorChange}
-        restorePreviousColor={brushProps.restorePreviousColor}
+    <WorkspaceLayout>
+      {/* Canvas Area */}
+      <CanvasArea canvasRef={canvasRef} />
+
+      {/* Top Utility Bar */}
+      <TopUtilityBar
+        onBack={() => window.history.back()}
+        onShare={() => setShowInvitationModal(true)}
+        isLive={true}
+        collaborators={collaborators}
       />
-      <LayerPanel
+
+      {/* Left Tool Rail with Brush Submenu */}
+      <ToolRail
+        brushSize={brushProps.lineWidth}
+        brushOpacity={brushProps.brushOpacity}
+        brushColor={brushProps.color}
+        onBrushSizeChange={brushProps.setLineWidth}
+        onBrushOpacityChange={brushProps.setBrushOpacity}
+        onColorChange={brushProps.setColor}
+        brushProps={brushProps}
+        selectionMode={selection.mode}
+        onSelectionModeChange={selection.setMode}
+        magicThreshold={selection.magicThreshold}
+        onMagicThresholdChange={selection.setMagicThreshold}
+      />
+
+      {/* Right Layers Panel */}
+      <LayersPanel
         layers={layer.layers}
         activeLayer={layer.activeLayer}
-        setActiveLayer={layer.setActiveLayer}
-        addLayer={layer.addLayer}
-        removeLayer={layer.removeLayer}
-        updateLayerType={layer.updateLayerType}
-        updateLayerVisibility={layer.updateLayerVisibility}
-        updateLayerOpacity={layer.updateLayerOpacity}
-        updateLayerBlendMode={layer.updateLayerBlendMode}
-        moveLayerUp={layer.moveLayerUp}
-        switchLayer={layer.switchLayer}
-        moveLayerDown={layer.moveLayerDown}
+        onLayerSelect={layer.switchLayer}
+        onAddLayer={layer.addLayer}
+        onToggleVisibility={layer.updateLayerVisibility}
+        onLayerTypeChange={handleLayerTypeChange}
+        onReorderLayers={handleReorderLayers}
+        onViewHistory={() => console.log('View history')}
       />
-      <NavigationSubmenu  />
-      <SessionParticipants />
-      <Modal isOpen={showInvitationModal} onClose={() => {setShowInvitationModal(false)}} title="Session Invitation " Accept={() => {setShowInvitationModal(false)}}>
-        <p>Kilmu has invited you to join the session.</p>
+
+      {/* Bottom Action Bar */}
+      <BottomActionBar
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onDiffusionClick={handleDiffusionPrompt}
+        zoomLevel={zoomLevel}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+        onResetZoom={resetZoom}
+      />
+
+      {/* Asset Library Button */}
+      <AssetLibraryButton onClick={() => setShowAssetLibrary(true)} />
+
+      {/* Selection Smart Tag - shows when there's an active selection */}
+      {selection.hasSelection && selection.selectionBounds && (
+        <SelectionSmartTag
+          hasObjectsSelected={selection.hasObjectsSelected}
+          activeAction={selection.activeAction}
+          onActionChange={selection.setActiveAction}
+          position={getSmartTagPosition()}
+          onApply={handleSelectionApply}
+          onCancel={selection.clearSelection}
+        />
+      )}
+
+      {/* Session Invitation Modal */}
+      <Modal
+        isOpen={showInvitationModal}
+        onClose={() => setShowInvitationModal(false)}
+        title="Session Invitation"
+        Accept={() => setShowInvitationModal(false)}
+      >
+        <p>Share this session with your team.</p>
       </Modal>
-        <div className = "fixed bottom-0 right-0 z-50">
-            <ChatHistory />
-        </div>
-        <div className = "fixed bottom-12 left-0 z-50 max-w-[200px] max-h-[200px]">
-            <CustomBrushProperties/>
-        </div>
-      
-       
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 border border-indigo-600 "
-      />
-      
-    </div>
+    </WorkspaceLayout>
   );
 };
