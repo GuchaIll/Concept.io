@@ -14,7 +14,6 @@ type MessageEvent = {
     payload: any;
 }
 
-
 export class WebSocketService
 {
     private ws: WebSocket;
@@ -86,7 +85,6 @@ export class WebSocketService
         return this.ws.readyState === WebSocket.OPEN;
     }
     
-    
 
     private joinRoom() {
         this.ws.send(JSON.stringify({
@@ -101,7 +99,9 @@ export class WebSocketService
         this.canvas = canvas;
         this.setUpCanvasListeners();
     }
-
+    
+  
+    
     private setUpCanvasListeners() {
         if(!this.canvas) return;
         
@@ -121,9 +121,6 @@ export class WebSocketService
         });
 
     }
-    
-
-    
     //When user began typing new message in chat, send a message box with placeholder text
     //Remove placeholder if the user stops typing
     private sendMessagePlaceholder(user: IUser, message: string, placeHolder: boolean)
@@ -154,8 +151,6 @@ export class WebSocketService
         }
         
    }
-        
-
     private handleCanvasEvent(event: CanvasEvent) { 
         if(!this.canvas) return;
         
@@ -200,7 +195,6 @@ export class WebSocketService
                 break;
         }
     }
-
     private sendCanvasEvent(type: CanvasEvent['type'], payload: any) {
         this.ws.send(JSON.stringify({
             type,
@@ -209,7 +203,6 @@ export class WebSocketService
             roomId: this.roomId,
         }));
     }
-    
     private sendMessageEvent(type: MessageEvent['type'], payload: any, placeHolder: boolean) {
         this.ws.send(JSON.stringify({
             type,
