@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as fabric from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocketService} from '../services/WebSocketService';
@@ -82,22 +82,35 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
   const [wsService, setWsService] = useState<any>(null);
   const [switchingLayer, setSwitchingLayer] = useState<boolean>(false);
+  
+  // Use a ref to always have the current active layer for event handlers
+  const activeLayerRef = useRef<Layer>(activeLayer);
+  
+  // Use a ref to always have the current layers for event handlers
+  const layersRef = useRef<Layer[]>(layers);
+  
+  // Flag to prevent updateLayers from running during reorder operations
+  const reorderingRef = useRef<boolean>(false);
+  
+  // Keep the refs in sync with state
+  useEffect(() => {
+    activeLayerRef.current = activeLayer;
+    console.log('Active layer ref updated to:', activeLayer.id, activeLayer.name);
+  }, [activeLayer]);
+  
+  useEffect(() => {
+    layersRef.current = layers;
+    console.log('Layers ref updated:', layers.map(l => `${l.name}(z:${l.zIndex})`));
+  }, [layers]);
 
   useEffect(() => {
-    // if (canvas && !wsService)
-    // {
-    //   const userId = generateUserId();
-    //   const roomId = window.location.pathname.split('/').pop() || 'default-room';
-    //   const wsURL = 'http://localhost:5000';
-    //   const ws = new WebSocketService(wsURL,userId, roomId);
-    //   ws.setCanvas(canvas);
-    //   setWsService(ws);
-
-    // }
-    if(!canvas) return;
-    const ws = WebSocketService.getInstance();
-    setWsService(ws);
-    if(ws.isConnected()) {
+    if (canvas && !wsService)
+    {
+      const userId = generateUserId();
+      // Use consistent project ID instead of URL path
+      const roomId = 'project-demo-1'; // TODO: Get from context/props
+      const wsURL = 'http://localhost:5000';
+      const ws = new WebSocketService(wsURL,userId, roomId);
       ws.setCanvas(canvas);
     }
   }, [canvas, wsService]);
@@ -144,6 +157,8 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
   const updateLayerVisibility = (layerId: string, visible: boolean) => {
     if (!canvas) return;
     
+    console.log(`Toggling visibility for layer ${layerId} to ${visible}`);
+    
     // Update layer state
     setLayers(layers.map(layer => 
       layer.id === layerId 
@@ -152,7 +167,12 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     ));
     
     // Update objects on canvas
-    const layerObjects = canvas.getObjects().filter(obj => obj.layerId === layerId);
+    const allObjects = canvas.getObjects();
+    const layerObjects = allObjects.filter(obj => obj.layerId === layerId);
+    
+    console.log(`Found ${layerObjects.length} objects for layer ${layerId} out of ${allObjects.length} total`);
+    console.log('All objects by layer:', allObjects.map(obj => ({ id: obj.id?.substring(0, 8), layerId: obj.layerId })));
+    
     layerObjects.forEach(obj => {
       obj.visible = visible;
     });
@@ -280,6 +300,8 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
 
     const moveLayerUp = (layerId : string) =>
     {
+      if (!canvas) return;
+      
       setLayers(prev =>
       {
         const index = prev.findIndex(l => l.id === layerId);
@@ -290,8 +312,11 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         
         // Update z-index values for affected layers
         newLayers.forEach((l, i) => {
-          l.zIndex = newLayers.length - 1 - i;
+          l.zIndex = i;
         });
+        
+        // Reorder objects in canvas
+        setTimeout(() => reorderCanvasObjects(newLayers), 0);
         
         return newLayers;
       });
@@ -299,6 +324,8 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
 
     const moveLayerDown = (layerId : string) =>
     {
+      if (!canvas) return;
+      
       setLayers(prev => 
       {
         const index = prev.findIndex(l => l.id === layerId);
@@ -309,12 +336,58 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
         
         // Update z-index values for affected layers
         newLayers.forEach((l, i) => {
-          l.zIndex = newLayers.length - 1 - i;
+          l.zIndex = i;
         });
+        
+        // Reorder objects in canvas
+        setTimeout(() => reorderCanvasObjects(newLayers), 0);
         
         return newLayers;
       });
     }
+    
+    // Helper function to reorder canvas objects based on layer order
+    // In the UI, layers at the top of the list should appear on top visually
+    // In Fabric.js, objects added later appear on top
+    // So we need to add objects in REVERSE layer order (bottom layers first)
+    const reorderCanvasObjects = (orderedLayers: Layer[]) => {
+      if (!canvas) return;
+      
+      const allObjects = canvas.getObjects();
+      if (allObjects.length === 0) return;
+      
+      // Set flag to prevent updateLayers from running during reorder
+      reorderingRef.current = true;
+      
+      // Create a map of objects by layer
+      const objectsByLayer = new Map<string, fabric.FabricObject[]>();
+      allObjects.forEach(obj => {
+        const layerId = obj.layerId || 'base';
+        if (!objectsByLayer.has(layerId)) {
+          objectsByLayer.set(layerId, []);
+        }
+        objectsByLayer.get(layerId)!.push(obj);
+      });
+      
+      // Remove all objects
+      canvas.remove(...allObjects);
+      
+      // Re-add objects in REVERSE layer order 
+      // (last layer in array = bottom of UI = added first = appears at bottom)
+      const reversedLayers = [...orderedLayers].reverse();
+      reversedLayers.forEach(layer => {
+        const layerObjs = objectsByLayer.get(layer.id) || [];
+        layerObjs.forEach(obj => canvas.add(obj));
+      });
+      
+      canvas.requestRenderAll();
+      console.log('Reordered canvas objects based on layer order');
+      
+      // Clear the reordering flag after a short delay
+      setTimeout(() => {
+        reorderingRef.current = false;
+      }, 50);
+    };
 
     const toggleLayerLock = (layerId : string) =>
     {
@@ -388,11 +461,92 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       return;
     }
     
+    // Skip entirely if we're in the middle of reordering layers
+    if (reorderingRef.current) {
+      console.log('Currently reordering layers - skipping updateLayers');
+      return;
+    }
+    
+    // Skip if object is being repositioned (to avoid infinite loop)
+    if (object._repositioning) {
+      console.log('Object is being repositioned - skipping');
+      return;
+    }
+    
+    // If object already has a layerId, don't reassign it
+    // This happens when objects are re-added during reorder or restore
+    if (object.layerId) {
+      console.log('Object already has layerId:', object.layerId, '- skipping reassignment');
+      return;
+    }
+    
+    // Use the ref to get the current active layer (not stale closure value)
+    const currentActiveLayer = activeLayerRef.current;
+    
     // Generate a unique ID for the object and assign layer ID
     const objectId = uuidv4();
     object.id = objectId;
-    object.layerId = activeLayer.id;
+    object.layerId = currentActiveLayer.id;
     object.erasable = true; // Make object erasable by default
+
+    console.log('Assigning NEW object to layer:', currentActiveLayer.id, currentActiveLayer.name);
+
+    // Position the new object correctly based on layer z-order
+    // Objects on layers with higher zIndex (top of UI) should appear on top
+    if (canvas) {
+      const allObjects = canvas.getObjects();
+      const currentLayers = layersRef.current; // Use ref for current layer state
+      
+      // Look up the CURRENT zIndex from layersRef (not the potentially stale one in activeLayerRef)
+      const currentLayerFromRef = currentLayers.find(l => l.id === currentActiveLayer.id);
+      const currentLayerZIndex = currentLayerFromRef?.zIndex ?? currentActiveLayer.zIndex;
+      
+      console.log('Positioning object. Active layer:', currentActiveLayer.id, 'zIndex:', currentLayerZIndex);
+      console.log('Current layers:', currentLayers.map(l => `${l.name}(z:${l.zIndex})`));
+      
+      // Find the correct insertion index
+      // We need to insert AFTER all objects from layers with lower zIndex
+      // and BEFORE objects from layers with higher zIndex
+      let insertIndex = allObjects.length; // Default: add at end
+      
+      for (let i = 0; i < allObjects.length; i++) {
+        const obj = allObjects[i];
+        const objLayerId = obj.layerId || 'base';
+        
+        // Find the layer for this object using ref
+        const objLayer = currentLayers.find(l => l.id === objLayerId);
+        const objZIndex = objLayer?.zIndex ?? 0;
+        
+        // If we find an object from a layer with higher zIndex, insert before it
+        if (objZIndex > currentLayerZIndex) {
+          insertIndex = i;
+          break;
+        }
+      }
+      
+      // If the object is not at the correct position, move it
+      const currentIndex = allObjects.indexOf(object);
+      if (currentIndex !== insertIndex && currentIndex !== insertIndex - 1) {
+        // Remove and re-insert at correct position
+        canvas.remove(object);
+        
+        // Temporarily set a flag to prevent re-triggering updateLayers
+        object._repositioning = true;
+        
+        // Insert at the correct position
+        const updatedObjects = canvas.getObjects();
+        if (insertIndex >= updatedObjects.length) {
+          canvas.add(object);
+        } else {
+          canvas.insertAt(insertIndex, object);
+        }
+        
+        delete object._repositioning;
+        canvas.requestRenderAll();
+        
+        console.log(`Repositioned object from index ${currentIndex} to ${insertIndex}`);
+      }
+    }
 
     const mainCtx = canvas?.getContext();
     if(mainCtx)
@@ -405,7 +559,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     // Add the object ID to the active layer's objects array
     setLayers(prevLayers => 
       prevLayers.map(layer => 
-        layer.id === activeLayer.id 
+        layer.id === currentActiveLayer.id 
           ? { ...layer, objects: [...layer.objects, objectId] }
           : layer
       )
@@ -413,24 +567,173 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
 
     wsService?.sendCanvasEvent('layer:updated', {
       layers,
-      activeLayer
+      activeLayer: currentActiveLayer
     })
     
-    console.log('Updated object with ID:', objectId, 'in layer:', activeLayer.id);
+    console.log('Updated object with ID:', objectId, 'in layer:', currentActiveLayer.id);
   }
 
   const reorderLayers = (oldIndex: number, newIndex: number) => {
-    setLayers(prevLayers => {
-      const newLayers = [...prevLayers];
-      const [removed] = newLayers.splice(oldIndex, 1);
-      newLayers.splice(newIndex, 0, removed);
-      // Update zIndex for all layers
-      return newLayers.map((layer, i) => ({
-        ...layer,
-        zIndex: i
-      }));
+    if (!canvas) return;
+    
+    console.log(`=== REORDER START ===`);
+    console.log(`Reordering layers: moving index ${oldIndex} to ${newIndex}`);
+    
+    // Set flag to prevent updateLayers from running during reorder
+    reorderingRef.current = true;
+    
+    // Capture current canvas objects BEFORE any state update
+    const allObjects = canvas.getObjects();
+    console.log('Canvas objects count:', allObjects.length);
+    
+    // Log each object's details
+    allObjects.forEach((obj, i) => {
+      console.log(`  Object ${i}: type=${obj.type}, layerId=${obj.layerId}, visible=${obj.visible}`);
     });
+    
+    // Make a copy of the array to ensure we have stable references
+    const objectsCopy = [...allObjects];
+    
+    // Create a map of objects by layer
+    const objectsByLayer = new Map<string, fabric.FabricObject[]>();
+    
+    objectsCopy.forEach(obj => {
+      const layerId = obj.layerId || 'base';
+      if (!objectsByLayer.has(layerId)) {
+        objectsByLayer.set(layerId, []);
+      }
+      objectsByLayer.get(layerId)!.push(obj);
+    });
+    
+    // Log what we captured
+    console.log('Objects by layer:');
+    objectsByLayer.forEach((objs, layerId) => {
+      console.log(`  Layer ${layerId}: ${objs.length} objects`);
+    });
+    
+    // Get current layers and compute new order
+    console.log('Current layers state:', layers.map(l => `${l.name}(${l.id})`));
+    const currentLayers = [...layers];
+    const [removed] = currentLayers.splice(oldIndex, 1);
+    currentLayers.splice(newIndex, 0, removed);
+    
+    // Update zIndex for all layers (index 0 = top of list = highest zIndex)
+    const updatedLayers = currentLayers.map((layer, i) => ({
+      ...layer,
+      zIndex: currentLayers.length - 1 - i
+    }));
+    
+    console.log('New layer order:', updatedLayers.map(l => `${l.name}(z:${l.zIndex})`));
+    
+    // Update state
+    setLayers(updatedLayers);
+    
+    // Handle canvas reordering if we have objects
+    if (objectsCopy.length > 0) {
+      // Use requestAnimationFrame for better timing with React's render cycle
+      requestAnimationFrame(() => {
+        if (!canvas) {
+          console.log('Canvas became null in requestAnimationFrame');
+          reorderingRef.current = false;
+          return;
+        }
+        
+        console.log('Inside requestAnimationFrame:');
+        
+        // Check objects in map are still valid
+        let mapObjectCount = 0;
+        objectsByLayer.forEach((objs, layerId) => {
+          console.log(`  Map layer ${layerId}: ${objs.length} objects, first object type: ${objs[0]?.type}`);
+          mapObjectCount += objs.length;
+        });
+        console.log(`  Total in map: ${mapObjectCount}`);
+        
+        // Remove all objects from canvas
+        const currentCanvasObjects = canvas.getObjects();
+        console.log(`  Current canvas objects before remove: ${currentCanvasObjects.length}`);
+        
+        if (currentCanvasObjects.length > 0) {
+          canvas.remove(...currentCanvasObjects);
+          console.log(`  After remove, canvas objects: ${canvas.getObjects().length}`);
+        }
+        
+        // Re-add objects in REVERSE layer order using our captured map
+        // (last in array = bottom of UI = added first = appears at bottom)
+        const reversedLayers = [...updatedLayers].reverse();
+        console.log('Adding objects in order:', reversedLayers.map(l => l.name));
+        
+        let addedCount = 0;
+        reversedLayers.forEach(layer => {
+          const layerObjs = objectsByLayer.get(layer.id) || [];
+          console.log(`  Adding ${layerObjs.length} objects for layer ${layer.name} (${layer.id})`);
+          layerObjs.forEach((obj, i) => {
+            // Ensure layerId is preserved
+            if (!obj.layerId) {
+              obj.layerId = layer.id;
+            }
+            console.log(`    Adding object ${i}: type=${obj.type}, layerId=${obj.layerId}`);
+            canvas.add(obj);
+            addedCount++;
+          });
+        });
+        
+        console.log(`Added ${addedCount} objects back to canvas`);
+        console.log(`Canvas objects after add: ${canvas.getObjects().length}`);
+        canvas.requestRenderAll();
+        console.log('=== REORDER COMPLETE ===');
+        
+        // Clear the reordering flag after a short delay
+        setTimeout(() => {
+          reorderingRef.current = false;
+          console.log('Reordering flag cleared');
+        }, 100);
+      });
+    } else {
+      console.log('No objects to reorder');
+      reorderingRef.current = false;
+    }
   };
+
+  // Restore layers from a snapshot (updates both layer state and canvas objects)
+  const restoreLayersFromSnapshot = useCallback((snapshotLayers: Array<{
+    layerId: string;
+    name: string;
+    type?: string;
+    objects: string;
+    visible: boolean;
+    opacity: number;
+    blendMode?: string;
+    zIndex: number;
+  }>) => {
+    if (!canvas) return;
+    
+    // Sort by zIndex DESCENDING - higher zIndex = top of list = first in array
+    const sortedSnapshotLayers = [...snapshotLayers].sort((a, b) => b.zIndex - a.zIndex);
+    
+    // Create new layer state from snapshot
+    const newLayers: Layer[] = sortedSnapshotLayers.map((sl, index) => ({
+      id: sl.layerId,
+      name: sl.name,
+      type: (sl.type as LayerType) || 'paint',
+      objects: [],
+      visible: sl.visible,
+      opacity: sl.opacity,
+      // Recalculate zIndex based on position (first = highest)
+      zIndex: sortedSnapshotLayers.length - 1 - index,
+      locked: false,
+      blendMode: (sl.blendMode as BlendMode) || 'normal',
+    }));
+    
+    // Update layers state
+    setLayers(newLayers);
+    
+    // Set first layer as active (top layer)
+    if (newLayers.length > 0) {
+      setActiveLayer(newLayers[0]);
+    }
+    
+    console.log('Restored layers from snapshot:', newLayers.map(l => `${l.name}(z:${l.zIndex})`));
+  }, [canvas]);
 
 
   return {
@@ -456,6 +759,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     updateLayers,
     updateLayerBlendMode,
     switchLayer,
-    reorderLayers
+    reorderLayers,
+    restoreLayersFromSnapshot
   }
 };

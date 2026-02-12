@@ -4,7 +4,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 
-export type ToolType = 'brush' | 'shape' | 'text' | 'pan' | 'zoom' | 'eraser' | 'rotate' | 'mirror' | 'select' | 'Eyedropper' | 'Fill';
+export type ToolType = 'brush' | 'shape' | 'text' | 'pan' | 'zoom' | 'eraser' | 'rotate' | 'mirror' | 'select' | 'Eyedropper' | 'Fill' | 'generate' | 'asset';
 
 export interface Tool {
   id: ToolType;

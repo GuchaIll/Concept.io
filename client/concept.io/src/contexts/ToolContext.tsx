@@ -8,8 +8,13 @@ type ToolAction =
 | { type: 'CLEAR_ACTIVE_TOOL'; };
 
 const initialState : ToolState = {
-    activeToolId: null,
-    activeTool: null
+    activeToolId: 'brush',
+    activeTool: {
+        id: 'brush',
+        label: 'Brush',
+        hasSubmenu: true,
+        submenuType: 'brush'
+    } as Tool
 };
 
 const toolReducer = (state: ToolState, action: ToolAction): ToolState => {

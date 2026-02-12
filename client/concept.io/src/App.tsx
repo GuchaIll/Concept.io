@@ -1,8 +1,6 @@
-
 import Navbar from "./components/Navbar"
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom'
 import './App.css'
-
 
 import Home from './pages/index'
 import About from './pages/about'
@@ -14,17 +12,25 @@ import AuthPage from './pages/auth'
 import LoginButton from './pages/login'
 import LogoutButton from './pages/logout'
 import Profile from './pages/profile'
+import TimelinePage from './pages/timeline'
+import { VersionProvider } from './contexts/VersionContext'
+
+// Configuration - in production these would come from env/user context
+const PROJECT_ID = 'project-demo-1';
+const USER_ID = 'user-demo-1';
 
 function App() {
   return (
     <Router>
-        <div className="h-screen relative "> 
+      <VersionProvider projectId={PROJECT_ID} userId={USER_ID}>
+        <div className="h-screen overflow-hidden relative "> 
           <Navbar />
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/about" element={<About />} />
             <Route path="/canvas" element={<Canvas />} />
+            <Route path="/timeline" element={<TimelinePage />} />
             <Route path="/user" element={<User />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/projects" element={<Projects />} />
@@ -33,6 +39,7 @@ function App() {
             <Route path="/profile" element={<Profile />} />
           </Routes>
         </div>
+      </VersionProvider>
     </Router>
   )
 }

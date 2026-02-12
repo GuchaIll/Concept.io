@@ -1,0 +1,515 @@
+import { useState, useCallback, useEffect, useRef } from 'react';
+import * as fabric from 'fabric';
+
+export type SelectionMode = 'box' | 'lasso' | 'magic';
+
+export type SelectionAction = 'transform' | 'liquify' | 'effects' | 'generate' | 'append';
+
+interface SelectionBounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface SelectionState {
+  mode: SelectionMode;
+  magicThreshold: number;
+  isSelecting: boolean;
+  hasSelection: boolean;
+  hasObjectsSelected: boolean;
+  selectionBounds: SelectionBounds | null;
+  activeAction: SelectionAction;
+}
+
+export const useSelection = (canvas: fabric.Canvas | null, isToolActive: boolean = false) => {
+  const [state, setState] = useState<SelectionState>({
+    mode: 'box',
+    magicThreshold: 30,
+    isSelecting: false,
+    hasSelection: false,
+    hasObjectsSelected: false,
+    selectionBounds: null,
+    activeAction: 'transform',
+  });
+
+  const lassoPoints = useRef<{ x: number; y: number }[]>([]);
+  const lassoPath = useRef<fabric.Path | null>(null);
+  const selectionRect = useRef<fabric.Rect | null>(null);
+  const boxStartPoint = useRef<{ x: number; y: number } | null>(null);
+
+  // Clear selection visuals - defined first as it's used by other functions
+  const clearSelectionVisuals = useCallback(() => {
+    if (canvas && selectionRect.current) {
+      canvas.remove(selectionRect.current);
+      selectionRect.current = null;
+    }
+    if (canvas && lassoPath.current) {
+      canvas.remove(lassoPath.current);
+      lassoPath.current = null;
+    }
+    lassoPoints.current = [];
+    boxStartPoint.current = null;
+    setState(prev => ({
+      ...prev,
+      hasSelection: false,
+      selectionBounds: null,
+    }));
+  }, [canvas]);
+
+  // Clear selection (both visual and objects)
+  const clearSelection = useCallback(() => {
+    if (canvas) {
+      canvas.discardActiveObject();
+      canvas.requestRenderAll();
+    }
+    clearSelectionVisuals();
+    setState(prev => ({
+      ...prev,
+      hasSelection: false,
+      hasObjectsSelected: false,
+      selectionBounds: null,
+    }));
+  }, [canvas, clearSelectionVisuals]);
+
+  // Set selection mode
+  const setMode = useCallback((mode: SelectionMode) => {
+    setState(prev => ({ ...prev, mode }));
+    // Clear any existing selection visuals when changing modes
+    clearSelectionVisuals();
+  }, [clearSelectionVisuals]);
+
+  // Set magic select threshold
+  const setMagicThreshold = useCallback((threshold: number) => {
+    setState(prev => ({ ...prev, magicThreshold: threshold }));
+  }, []);
+
+  // Set active action
+  const setActiveAction = useCallback((action: SelectionAction) => {
+    setState(prev => ({ ...prev, activeAction: action }));
+  }, []);
+
+  // Clear selection when tool becomes inactive
+  useEffect(() => {
+    if (!isToolActive) {
+      clearSelectionVisuals();
+    }
+  }, [isToolActive, clearSelectionVisuals]);
+
+  // Handle box selection with persistent visual rectangle
+  useEffect(() => {
+    if (!canvas || !isToolActive) return;
+    
+    if (state.mode === 'box') {
+      // Disable Fabric's built-in selection visual (we'll manage our own)
+      canvas.selection = false;
+      
+      let isDrawing = false;
+
+      const handleMouseDown = (opt: any) => {
+        if (state.mode !== 'box' || !isToolActive) return;
+        
+        // Clear previous selection
+        clearSelectionVisuals();
+        canvas.discardActiveObject();
+        
+        isDrawing = true;
+        const pointer = canvas.getScenePoint(opt.e);
+        boxStartPoint.current = { x: pointer.x, y: pointer.y };
+        
+        // Create selection rectangle
+        selectionRect.current = new fabric.Rect({
+          left: pointer.x,
+          top: pointer.y,
+          width: 0,
+          height: 0,
+          fill: 'rgba(43, 108, 238, 0.1)',
+          stroke: '#2b6cee',
+          strokeWidth: 1,
+          strokeDashArray: [5, 5],
+          selectable: false,
+          evented: false,
+        });
+        canvas.add(selectionRect.current);
+      };
+
+      const handleMouseMove = (opt: any) => {
+        if (!isDrawing || !boxStartPoint.current || !selectionRect.current) return;
+        
+        const pointer = canvas.getScenePoint(opt.e);
+        const left = Math.min(boxStartPoint.current.x, pointer.x);
+        const top = Math.min(boxStartPoint.current.y, pointer.y);
+        const width = Math.abs(pointer.x - boxStartPoint.current.x);
+        const height = Math.abs(pointer.y - boxStartPoint.current.y);
+        
+        selectionRect.current.set({
+          left,
+          top,
+          width,
+          height,
+        });
+        canvas.requestRenderAll();
+      };
+
+      const handleMouseUp = () => {
+        if (!isDrawing || !selectionRect.current) return;
+        
+        isDrawing = false;
+        
+        const bounds = {
+          left: selectionRect.current.left || 0,
+          top: selectionRect.current.top || 0,
+          width: selectionRect.current.width || 0,
+          height: selectionRect.current.height || 0,
+        };
+        
+        // Only process if selection has meaningful size
+        if (bounds.width > 5 && bounds.height > 5) {
+          // Find objects within selection bounds
+          const objects = canvas.getObjects().filter(obj => {
+            if (obj === selectionRect.current || !obj.selectable) return false;
+            
+            const objBounds = obj.getBoundingRect();
+            return (
+              objBounds.left >= bounds.left &&
+              objBounds.top >= bounds.top &&
+              objBounds.left + objBounds.width <= bounds.left + bounds.width &&
+              objBounds.top + objBounds.height <= bounds.top + bounds.height
+            );
+          });
+          
+          const hasObjects = objects.length > 0;
+          
+          if (hasObjects) {
+            // Select the objects
+            if (objects.length === 1) {
+              canvas.setActiveObject(objects[0]);
+            } else {
+              const selection = new fabric.ActiveSelection(objects, { canvas });
+              canvas.setActiveObject(selection);
+            }
+          }
+          
+          // Keep the selection rectangle visible
+          setState(prev => ({
+            ...prev,
+            hasSelection: true,
+            hasObjectsSelected: hasObjects,
+            selectionBounds: bounds,
+            activeAction: hasObjects ? 'transform' : 'generate',
+          }));
+          
+          canvas.requestRenderAll();
+        } else {
+          // Selection too small, remove it
+          canvas.remove(selectionRect.current);
+          selectionRect.current = null;
+          boxStartPoint.current = null;
+        }
+      };
+
+      canvas.on('mouse:down', handleMouseDown);
+      canvas.on('mouse:move', handleMouseMove);
+      canvas.on('mouse:up', handleMouseUp);
+
+      return () => {
+        canvas.off('mouse:down', handleMouseDown);
+        canvas.off('mouse:move', handleMouseMove);
+        canvas.off('mouse:up', handleMouseUp);
+      };
+    } else {
+      // Disable box selection for other modes
+      canvas.selection = false;
+    }
+  }, [canvas, state.mode, isToolActive, clearSelectionVisuals]);
+
+  // Handle lasso selection
+  useEffect(() => {
+    if (!canvas || state.mode !== 'lasso' || !isToolActive) return;
+
+    let isDrawing = false;
+    
+    // Ensure box selection is disabled
+    canvas.selection = false;
+
+    const handleMouseDown = (opt: any) => {
+      if (state.mode !== 'lasso' || !isToolActive) return;
+      
+      // Clear previous selection
+      clearSelectionVisuals();
+      canvas.discardActiveObject();
+      
+      isDrawing = true;
+      lassoPoints.current = [];
+      const pointer = canvas.getScenePoint(opt.e);
+      lassoPoints.current.push({ x: pointer.x, y: pointer.y });
+      
+      // Create initial path
+      lassoPath.current = new fabric.Path(`M ${pointer.x} ${pointer.y}`, {
+        fill: 'rgba(43, 108, 238, 0.1)',
+        stroke: '#2b6cee',
+        strokeWidth: 1,
+        strokeDashArray: [5, 5],
+        selectable: false,
+        evented: false,
+      });
+      canvas.add(lassoPath.current);
+    };
+
+    const handleMouseMove = (opt: any) => {
+      if (!isDrawing || state.mode !== 'lasso') return;
+      
+      const pointer = canvas.getScenePoint(opt.e);
+      lassoPoints.current.push({ x: pointer.x, y: pointer.y });
+      
+      // Update path
+      if (lassoPath.current && lassoPoints.current.length > 1) {
+        const pathData = lassoPoints.current
+          .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
+          .join(' ') + ' Z';
+        
+        canvas.remove(lassoPath.current);
+        lassoPath.current = new fabric.Path(pathData, {
+          fill: 'rgba(43, 108, 238, 0.1)',
+          stroke: '#2b6cee',
+          strokeWidth: 1,
+          strokeDashArray: [5, 5],
+          selectable: false,
+          evented: false,
+        });
+        canvas.add(lassoPath.current);
+        canvas.requestRenderAll();
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (!isDrawing || state.mode !== 'lasso') return;
+      
+      isDrawing = false;
+      
+      // Select objects within lasso
+      if (lassoPath.current && lassoPoints.current.length > 2) {
+        const objects = canvas.getObjects().filter(obj => {
+          if (obj === lassoPath.current || !obj.selectable) return false;
+          
+          // Check if object center is inside lasso polygon
+          const center = obj.getCenterPoint();
+          return isPointInPolygon(center, lassoPoints.current);
+        });
+        
+        const hasObjects = objects.length > 0;
+        
+        if (hasObjects) {
+          canvas.discardActiveObject();
+          const selection = new fabric.ActiveSelection(objects, { canvas });
+          canvas.setActiveObject(selection);
+        }
+        
+        // Calculate bounds from lasso points
+        const xs = lassoPoints.current.map(p => p.x);
+        const ys = lassoPoints.current.map(p => p.y);
+        const bounds = {
+          left: Math.min(...xs),
+          top: Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
+        };
+        
+        setState(prev => ({
+          ...prev,
+          hasSelection: true,
+          hasObjectsSelected: hasObjects,
+          selectionBounds: bounds,
+          activeAction: hasObjects ? 'transform' : 'generate',
+        }));
+        
+        // Keep lasso path visible
+        canvas.requestRenderAll();
+      } else {
+        // Remove lasso path if too small
+        if (lassoPath.current) {
+          canvas.remove(lassoPath.current);
+          lassoPath.current = null;
+        }
+        lassoPoints.current = [];
+      }
+    };
+
+    canvas.on('mouse:down', handleMouseDown);
+    canvas.on('mouse:move', handleMouseMove);
+    canvas.on('mouse:up', handleMouseUp);
+
+    return () => {
+      canvas.off('mouse:down', handleMouseDown);
+      canvas.off('mouse:move', handleMouseMove);
+      canvas.off('mouse:up', handleMouseUp);
+      
+      // Clean up lasso path if exists
+      if (lassoPath.current) {
+        canvas.remove(lassoPath.current);
+        lassoPath.current = null;
+      }
+    };
+  }, [canvas, state.mode, isToolActive, clearSelectionVisuals]);
+
+  // Magic select - select by color similarity
+  const performMagicSelect = useCallback((e: any) => {
+    if (!canvas || state.mode !== 'magic' || !isToolActive) return;
+    
+    const pointer = canvas.getScenePoint(e.e);
+    const ctx = canvas.getContext();
+    
+    // Get pixel color at click point
+    const imageData = ctx.getImageData(
+      Math.floor(pointer.x),
+      Math.floor(pointer.y),
+      1,
+      1
+    );
+    const targetColor = {
+      r: imageData.data[0],
+      g: imageData.data[1],
+      b: imageData.data[2],
+    };
+    
+    const threshold = state.magicThreshold / 100;
+    
+    // Find objects with similar colors
+    const objects = canvas.getObjects().filter(obj => {
+      if (!obj.selectable) return false;
+      
+      // Get object's dominant color (simplified - uses fill or stroke)
+      const objColor = getObjectColor(obj);
+      if (!objColor) return false;
+      
+      return colorSimilarity(targetColor, objColor) <= threshold;
+    });
+    
+    const hasObjects = objects.length > 0;
+    
+    if (hasObjects) {
+      canvas.discardActiveObject();
+      if (objects.length === 1) {
+        canvas.setActiveObject(objects[0]);
+      } else {
+        const selection = new fabric.ActiveSelection(objects, { canvas });
+        canvas.setActiveObject(selection);
+      }
+      
+      // Calculate combined bounds
+      const allBounds = objects.map(obj => obj.getBoundingRect());
+      const bounds = {
+        left: Math.min(...allBounds.map(b => b.left)),
+        top: Math.min(...allBounds.map(b => b.top)),
+        width: 0,
+        height: 0,
+      };
+      bounds.width = Math.max(...allBounds.map(b => b.left + b.width)) - bounds.left;
+      bounds.height = Math.max(...allBounds.map(b => b.top + b.height)) - bounds.top;
+      
+      setState(prev => ({
+        ...prev,
+        hasSelection: true,
+        hasObjectsSelected: true,
+        selectionBounds: bounds,
+        activeAction: 'transform',
+      }));
+      
+      canvas.requestRenderAll();
+    }
+  }, [canvas, state.mode, state.magicThreshold, isToolActive]);
+
+  // Set up magic select click handler
+  useEffect(() => {
+    if (!canvas || state.mode !== 'magic' || !isToolActive) return;
+    
+    canvas.selection = false; // Disable box selection for magic mode
+    canvas.on('mouse:down', performMagicSelect);
+    
+    return () => {
+      canvas.off('mouse:down', performMagicSelect);
+    };
+  }, [canvas, state.mode, isToolActive, performMagicSelect]);
+
+  // Listen for Escape key to clear selection
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        clearSelection();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [clearSelection]);
+
+  return {
+    mode: state.mode,
+    magicThreshold: state.magicThreshold,
+    setMode,
+    setMagicThreshold,
+    isSelecting: state.isSelecting,
+    hasSelection: state.hasSelection,
+    hasObjectsSelected: state.hasObjectsSelected,
+    selectionBounds: state.selectionBounds,
+    activeAction: state.activeAction,
+    setActiveAction,
+    clearSelection,
+  };
+};
+
+// Helper: Check if point is inside polygon (ray casting algorithm)
+function isPointInPolygon(point: { x: number; y: number }, polygon: { x: number; y: number }[]): boolean {
+  let inside = false;
+  const n = polygon.length;
+  
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    
+    if (((yi > point.y) !== (yj > point.y)) &&
+        (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  
+  return inside;
+}
+
+// Helper: Get object's color
+function getObjectColor(obj: fabric.Object): { r: number; g: number; b: number } | null {
+  const fill = obj.fill;
+  if (typeof fill === 'string' && fill.startsWith('#')) {
+    return hexToRgb(fill);
+  }
+  if (typeof fill === 'string' && fill.startsWith('rgb')) {
+    const match = fill.match(/(\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+      return { r: parseInt(match[1]), g: parseInt(match[2]), b: parseInt(match[3]) };
+    }
+  }
+  // For paths/strokes
+  const stroke = obj.stroke;
+  if (typeof stroke === 'string' && stroke.startsWith('#')) {
+    return hexToRgb(stroke);
+  }
+  return null;
+}
+
+// Helper: Hex to RGB
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16)
+  } : null;
+}
+
+// Helper: Color similarity (0 = identical, 1 = completely different)
+function colorSimilarity(c1: { r: number; g: number; b: number }, c2: { r: number; g: number; b: number }): number {
+  const rDiff = Math.abs(c1.r - c2.r) / 255;
+  const gDiff = Math.abs(c1.g - c2.g) / 255;
+  const bDiff = Math.abs(c1.b - c2.b) / 255;
+  return (rDiff + gDiff + bDiff) / 3;
+}

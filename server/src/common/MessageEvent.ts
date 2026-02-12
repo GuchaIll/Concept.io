@@ -1,4 +1,3 @@
-
 export interface MessageEvent {
     senderID: string;
     displayName?: string;

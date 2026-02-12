@@ -22,6 +22,8 @@ declare module 'fabric' {
     id?: string;
     layerId?: string;
     baseOpacity?: number;
+    _repositioning?: boolean;
+    _skipHistory?: boolean;
   }
 }
 
