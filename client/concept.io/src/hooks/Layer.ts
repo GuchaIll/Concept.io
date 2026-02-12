@@ -112,8 +112,6 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       const wsURL = 'http://localhost:5000';
       const ws = new WebSocketService(wsURL,userId, roomId);
       ws.setCanvas(canvas);
-      setWsService(ws);
-
     }
   }, [canvas, wsService]);
 

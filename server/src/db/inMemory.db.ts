@@ -1,6 +1,7 @@
 // an InMemory version of the database that you can use in early-stage development
 import { IDatabase } from './dac';
 import {CanvasEvent} from "../common/CanvasEvent";
+import {MessageEvent} from "../common/MessageEvent";
 
 export class InMemoryDatabase implements IDatabase {
     
@@ -23,6 +24,10 @@ export class InMemoryDatabase implements IDatabase {
     async saveCanvasEventToHistory(e : CanvasEvent) : Promise<void> {
         console.log("InMemoryDatabase saveCanvasEventToHistory");
         this.history.push(e);
+    }
+
+    async removeCanvasEventFromHistory(e: CanvasEvent): Promise<void> {
+        console.log("InMemoryDatabase removeCanvasEventFromHistory");
     }
     
     async getAllCanvasEventsFromHistory() : Promise<CanvasEvent[]> {
