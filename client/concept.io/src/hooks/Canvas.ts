@@ -9,6 +9,7 @@ import {useBrush} from './Brush';
 // import { useBrushContext } from '../contexts/BrushContext';
 import { useFill } from './Fill';
 import { useSelection } from './Selection';
+import { useZoomPan } from './ZoomPan';
 
 export interface CanvasConfig {
   width?: number;
@@ -34,6 +35,7 @@ export const useCanvas = (config?: CanvasConfig) => {
   const layer = useLayers(canvas);
   const { EraseModeOn, toggleEraseMode } = useEraser(canvas);
   const brushProps = useBrush(canvas);
+  const zoomPan = useZoomPan(canvas);
   
   // Only enable selection when select tool is active
   const isSelectToolActive = toolState.activeToolId === 'select';

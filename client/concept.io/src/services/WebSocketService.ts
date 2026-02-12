@@ -1,6 +1,6 @@
 import * as fabric from 'fabric';
 import {UserSessionProfile} from './userSessionProfile'
-
+import { type IUser } from  '../common/user.interface';
 
 type CanvasEvent = {
     type: 'object:added' | 'object:modified' | 'object:removed' | 'canvas:clear' | 'layer:updated';
@@ -13,7 +13,6 @@ type MessageEvent = {
     type: 'message:added' | 'message:modified' | 'message:removed' | 'message:placeholder';
     payload: any;
 }
-
 
 
 export class WebSocketService
@@ -54,10 +53,14 @@ export class WebSocketService
 
         this.ws.onmessage = (message) => {
             console.log(message);
-            const data: CanvasEvent = JSON.parse(message['data']);
+            const data = JSON.parse(message['data']);
             if(data.userId !== this.userId)
             {
-                this.handleCanvasEvent(data);
+                if (data.type.startsWith('message:')) {                    
+                    this.handleMessageEvent(data);
+                } else {
+                    this.handleCanvasEvent(data);
+                }
             }
         };
 
@@ -78,6 +81,10 @@ export class WebSocketService
         this.onMessageModified = callbacks.onMessageModified;
         this.onMessageRemoved = callbacks.onMessageRemoved;
     }
+
+    public isConnected(): boolean {
+        return this.ws.readyState === WebSocket.OPEN;
+    }
     
     
 
@@ -94,10 +101,7 @@ export class WebSocketService
         this.canvas = canvas;
         this.setUpCanvasListeners();
     }
-    
-  
-    
-    
+
     private setUpCanvasListeners() {
         if(!this.canvas) return;
         
@@ -122,11 +126,11 @@ export class WebSocketService
     
     //When user began typing new message in chat, send a message box with placeholder text
     //Remove placeholder if the user stops typing
-    private initiateMessageEvent(user: IUser, message: string, placeHolder: boolean)
+    private sendMessagePlaceholder(user: IUser, message: string, placeHolder: boolean)
     {
         const payload = {
-            userId: user.id,
-            userName: user.name,
+            userId: user._id,
+            userName: user.displayName,
             message,
             placeHolder,
         }
@@ -138,22 +142,19 @@ export class WebSocketService
             case 'message:added':
                 this.onMessageAdded?.(messageEvent.payload);
                 break;
-                case 'message:modified':
-                    this.onMessageModified?.(messageEvent.payload);
-                    break;
-                    case 'message:removed':
-                        this.onMessageRemoved?.(messageEvent.payload);
-                        break;
-                        case 'message:placeholder':
-                            this.onMessageAdded?.(messageEvent.payload);
-                            break;
+            case 'message:modified':
+                this.onMessageModified?.(messageEvent.payload);
+                break;
+            case 'message:removed':
+                this.onMessageRemoved?.(messageEvent.payload);
+                break;
+            case 'message:placeholder':
+                this.onMessageAdded?.(messageEvent.payload);
+                break;
         }
-        
-        
         
    }
         
-       
 
     private handleCanvasEvent(event: CanvasEvent) { 
         if(!this.canvas) return;
