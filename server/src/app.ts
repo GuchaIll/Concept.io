@@ -49,7 +49,10 @@ class App {
     }
 
     private configureApp(initOnStart: boolean): void {
-        //TODO: initialize and connect to the database
+        // Initialize and connect to the database
+        // Set the static DAC.db so all components can access it
+        DAC.db = this.db;
+        console.log('Database configured:', this.db.constructor.name);
     }
 
     private configureMiddlewares() {
