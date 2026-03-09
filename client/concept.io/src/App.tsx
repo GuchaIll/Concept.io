@@ -13,16 +13,27 @@ import LoginButton from './pages/login'
 import LogoutButton from './pages/logout'
 import Profile from './pages/profile'
 import TimelinePage from './pages/timeline'
+import AssetVaultPage from './pages/assets'
 import { VersionProvider } from './contexts/VersionContext'
+import { AssetProvider } from './contexts/AssetContext'
+import { SessionProvider, useSession } from './contexts/SessionContext'
 
-// Configuration - in production these would come from env/user context
-const PROJECT_ID = 'project-demo-1';
-const USER_ID = 'user-demo-1';
+/** Inner shell that reads session context and passes IDs to providers */
+const AppShell = () => {
+  const { projectId, userId, isLoading } = useSession();
 
-function App() {
+  // Wait until we have a valid project before rendering providers
+  if (isLoading || !projectId) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gray-900 text-white">
+        <p>Loading project…</p>
+      </div>
+    );
+  }
+
   return (
-    <Router>
-      <VersionProvider projectId={PROJECT_ID} userId={USER_ID}>
+    <VersionProvider projectId={projectId} userId={userId}>
+      <AssetProvider projectId={projectId} userId={userId}>
         <div className="h-screen overflow-hidden relative "> 
           <Navbar />
           <Routes>
@@ -31,6 +42,7 @@ function App() {
             <Route path="/about" element={<About />} />
             <Route path="/canvas" element={<Canvas />} />
             <Route path="/timeline" element={<TimelinePage />} />
+            <Route path="/assets" element={<AssetVaultPage />} />
             <Route path="/user" element={<User />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/projects" element={<Projects />} />
@@ -39,7 +51,17 @@ function App() {
             <Route path="/profile" element={<Profile />} />
           </Routes>
         </div>
-      </VersionProvider>
+      </AssetProvider>
+    </VersionProvider>
+  );
+};
+
+function App() {
+  return (
+    <Router>
+      <SessionProvider>
+        <AppShell />
+      </SessionProvider>
     </Router>
   )
 }
