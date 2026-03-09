@@ -2,19 +2,17 @@ import { useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TimelineFlow } from '../components/VersionTimeline';
 import { useVersionContext } from '../contexts/VersionContext';
+import { useSession } from '../contexts/SessionContext';
 import { useWebSocket } from '../hooks/useWebSocket';
-
-// Configuration - in production these would come from env/context
-const PROJECT_ID = 'project-demo-1';
-const USER_ID = 'user-demo-1';
 
 const TimelinePage = () => {
   const navigate = useNavigate();
+  const { projectId, userId } = useSession();
   
   // Connect to WebSocket for real-time sync
   const { socket, isConnected, error: wsError } = useWebSocket({
-    projectId: PROJECT_ID,
-    userId: USER_ID,
+    projectId,
+    userId,
     autoConnect: true,
   });
 
@@ -46,8 +44,8 @@ const TimelinePage = () => {
     createSnapshot(name, description);
   };
 
-  const handleRestoreSnapshot = useCallback((snapshotId: string) => {
-    const success = restoreSnapshot(snapshotId);
+  const handleRestoreSnapshot = useCallback(async (snapshotId: string) => {
+    const success = await restoreSnapshot(snapshotId);
     if (success) {
       // Navigate back to canvas after restore
       navigate('/canvas');
