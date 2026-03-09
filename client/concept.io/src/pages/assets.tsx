@@ -1,22 +1,20 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAssetContext, ASSET_CATEGORIES, type IAsset } from '../contexts/AssetContext';
+import { useSession } from '../contexts/SessionContext';
 import { useWebSocket } from '../hooks/useWebSocket';
-
-// Configuration
-const PROJECT_ID = 'project-demo-1';
-const USER_ID = 'user-demo-1';
 
 const AssetVaultPage = () => {
   const navigate = useNavigate();
+  const { projectId, userId } = useSession();
   const [activeTab, setActiveTab] = useState<'all' | 'recent' | 'favorites' | 'shared'>('all');
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [draggedAsset, setDraggedAsset] = useState<IAsset | null>(null);
+  const [_draggedAsset, setDraggedAsset] = useState<IAsset | null>(null);
 
   // Connect to WebSocket
   const { socket, isConnected, error: wsError } = useWebSocket({
-    projectId: PROJECT_ID,
-    userId: USER_ID,
+    projectId,
+    userId,
     autoConnect: true,
   });
 
@@ -339,7 +337,7 @@ const AssetVaultPage = () => {
       {/* Error Display */}
       {(error || wsError) && (
         <div className="fixed top-20 right-6 z-50 bg-red-500/20 border border-red-500/50 px-4 py-2 rounded-lg">
-          <p className="text-sm text-red-400">{error || (wsError as Error)?.message || 'Connection error'}</p>
+          <p className="text-sm text-red-400">{error || (wsError ? String(wsError) : 'Connection error')}</p>
         </div>
       )}
     </div>
