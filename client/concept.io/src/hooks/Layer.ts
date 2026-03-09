@@ -3,6 +3,8 @@ import * as fabric from 'fabric';
 import { v4 as uuidv4 } from 'uuid';
 import { WebSocketService} from '../services/WebSocketService';
 import { generateUserId } from './util';
+import { getLayerConstraints } from '../config/layerConstraints';
+import { useSession } from '../contexts/SessionContext';
 
 export const blendModes = {
   NORMAL: 'normal',
@@ -24,23 +26,13 @@ export const blendModes = {
 
 export type BlendMode = typeof blendModes[keyof typeof blendModes];
 
-const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
-        normal: 'source-over',
-        multiply: 'multiply',
-        screen: 'screen',
-        overlay: 'overlay',
-        darken: 'darken',
-        lighten: 'lighten',
-        'color-dodge': 'lighter', // approximate
-        'color-burn': 'darken',   // approximate
-        'hard-light': 'hard-light',
-        'soft-light': 'soft-light',
-        difference: 'difference',
-        exclusion: 'exclusion',
-        'hsl-hue': 'hue',
-        'hsl-saturation': 'saturation',
-        'hsl-luminosity': 'luminosity',
-      };
+// Blend mode map is available but not currently used - kept for future reference
+// const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
+//   normal: 'source-over', multiply: 'multiply', screen: 'screen', overlay: 'overlay',
+//   darken: 'darken', lighten: 'lighten', 'color-dodge': 'lighter', 'color-burn': 'darken',
+//   'hard-light': 'hard-light', 'soft-light': 'soft-light', difference: 'difference',
+//   exclusion: 'exclusion', 'hsl-hue': 'hue', 'hsl-saturation': 'saturation', 'hsl-luminosity': 'luminosity',
+// };
 
 //Layer types for different workflows
 export const LayerTypes = [
@@ -65,9 +57,19 @@ export interface Layer {
   locked?: boolean;
   blendMode?: BlendMode;
   CachedBitmap?: fabric.FabricImage;
+  
+  // Delta snapshot tracking
+  isDirty?: boolean;           // True when layer has unsaved changes
+  lastModifiedAt?: number;     // Timestamp of last modification
+  lastSnapshotId?: string;     // ID of last snapshot that captured this layer fully
+  
+  // Asset layer specific properties
+  assetId?: string;           // Reference to asset in vault
+  assetImageData?: string;    // Cached image data for the asset
 }
 
 export const useLayers = (canvas: fabric.Canvas | null) => {
+  const { projectId: sessionProjectId } = useSession();
   const [layers, setLayers] = useState<Layer[]>([{
     id: 'base',
     name: 'Base Layer',
@@ -77,7 +79,9 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     opacity: 1,
     zIndex: 0,
     locked: false,
-    blendMode: 'normal'
+    blendMode: 'normal',
+    isDirty: true,
+    lastModifiedAt: Date.now(),
   }]);
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
   const [wsService, setWsService] = useState<any>(null);
@@ -107,15 +111,15 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     if (canvas && !wsService)
     {
       const userId = generateUserId();
-      // Use consistent project ID instead of URL path
-      const roomId = 'project-demo-1'; // TODO: Get from context/props
+      // Use project ID from session context as room ID
+      const roomId = sessionProjectId || 'default-room';
       const wsURL = 'http://localhost:5000';
       const ws = new WebSocketService(wsURL,userId, roomId);
       ws.setCanvas(canvas);
       setWsService(ws);
 
     }
-  }, [canvas, wsService]);
+  }, [canvas, wsService, sessionProjectId]);
 
   const getLayerIndexByID = (layerID: string) => {
     return layers.findIndex(layer => layer.id === layerID);
@@ -140,12 +144,124 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       opacity: 1,
       zIndex: layers.length,
       locked: false,
-      blendMode: 'normal'
+      blendMode: 'normal',
+      isDirty: true,
+      lastModifiedAt: Date.now(),
     };
     setLayers([...layers, newLayer]);
     setActiveLayer(newLayer);
   };
-  
+
+  // Add an asset layer with an image from the Asset Vault
+  const addAssetLayer = async (
+    assetId: string,
+    assetName: string,
+    imageData: string,
+    width: number,
+    height: number,
+    x?: number,
+    y?: number
+  ): Promise<Layer | null> => {
+    if (!canvas) return null;
+
+    const newLayerId = `asset-layer-${Date.now()}`;
+    
+    // Create the new asset layer
+    const newLayer: Layer = {
+      id: newLayerId,
+      name: assetName,
+      type: 'asset',
+      objects: [],
+      visible: true,
+      opacity: 1,
+      zIndex: layers.length,
+      locked: false,
+      blendMode: 'normal',
+      assetId: assetId,
+      assetImageData: imageData,
+    };
+
+    // Load the image and add to canvas
+    try {
+      const img = await fabric.FabricImage.fromURL(imageData);
+      
+      // Position the image (center if no position specified)
+      const canvasWidth = canvas.getWidth();
+      const canvasHeight = canvas.getHeight();
+      const posX = x !== undefined ? x : (canvasWidth - width) / 2;
+      const posY = y !== undefined ? y : (canvasHeight - height) / 2;
+
+      img.set({
+        left: posX,
+        top: posY,
+        scaleX: width / (img.width || width),
+        scaleY: height / (img.height || height),
+        // Make fully selectable and transformable
+        selectable: true,
+        evented: true,
+        // Enable all transformation controls
+        hasControls: true,
+        hasBorders: true,
+        lockMovementX: false,
+        lockMovementY: false,
+        lockRotation: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        lockSkewingX: false,
+        lockSkewingY: false,
+        // Enable corner controls for scaling
+        cornerSize: 12,
+        cornerColor: '#2b6cee',
+        cornerStrokeColor: '#ffffff',
+        cornerStyle: 'circle',
+        transparentCorners: false,
+        // Enable rotation control
+        centeredRotation: true,
+        // Border styling
+        borderColor: '#2b6cee',
+        borderScaleFactor: 2,
+        // Custom properties
+        layerId: newLayerId,
+        id: uuidv4(),
+      });
+
+      // Add to canvas
+      canvas.add(img);
+      
+      // Ensure canvas is in selection mode so the asset can be transformed
+      canvas.isDrawingMode = false;
+      canvas.selection = true;
+      
+      // Set the asset as the active object so user can immediately transform it
+      canvas.setActiveObject(img);
+      canvas.requestRenderAll();
+
+      // Update layers state
+      setLayers(prev => [...prev, newLayer]);
+      setActiveLayer(newLayer);
+
+      console.log('Asset layer created:', assetName, 'with asset ID:', assetId);
+      return newLayer;
+    } catch (error) {
+      console.error('Failed to create asset layer:', error);
+      return null;
+    }
+  };
+
+  // Check if drawing is allowed on the current active layer
+  const isDrawingAllowed = useCallback((): boolean => {
+    const layer = activeLayerRef.current;
+    if (layer.locked) {
+      console.log('Drawing not allowed on locked layer:', layer.name);
+      return false;
+    }
+    const constraints = getLayerConstraints(layer.type);
+    if (!constraints.allowDrawing) {
+      console.log('Drawing not allowed on', layer.type, 'layer:', layer.name);
+      return false;
+    }
+    return true;
+  }, []);
 
   const removeLayer = (layerId: string) => {
     if (layers.length <= 1) return;
@@ -164,7 +280,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     // Update layer state
     setLayers(layers.map(layer => 
       layer.id === layerId 
-        ? { ...layer, visible } 
+        ? { ...layer, visible, isDirty: true, lastModifiedAt: Date.now() } 
         : layer
     ));
     
@@ -185,7 +301,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     if (!canvas) return;
     setLayers(layers.map(layer => 
       layer.id === layerId 
-        ? { ...layer, blendMode: blendMode as BlendMode } 
+        ? { ...layer, blendMode: blendMode as BlendMode, isDirty: true, lastModifiedAt: Date.now() } 
         : layer
     ));
   }
@@ -195,7 +311,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     if (!canvas) return;
     setLayers(layers.map(layer =>
       layer.id === layerId
-        ? { ...layer, type: type as LayerType }
+        ? { ...layer, type: type as LayerType, isDirty: true, lastModifiedAt: Date.now() }
         : layer
     ));
 
@@ -222,7 +338,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     if (!canvas) return;
     setLayers(layers.map(layer => 
       layer.id === layerId 
-        ? { ...layer, opacity } 
+        ? { ...layer, opacity, isDirty: true, lastModifiedAt: Date.now() } 
         : layer
     ));
     
@@ -400,28 +516,8 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       )
     }
 
-  // Update the z-index of all objects based on layer order - call this manually when needed
-  const updateObjectZIndices = useCallback(() => {
-    if (!canvas) return;
-    
-    const allObjects = canvas.getObjects();
-    if (allObjects.length === 0) return;
-    
-    // Sort objects by their layer's zIndex
-    layers.forEach((layer, layerIndex) => {
-      const layerObjects = allObjects.filter(obj => obj.layerId === layer.id);
-      layerObjects.forEach(obj => {
-        // Set visibility based on layer visibility
-        obj.visible = layer.visible;
-        // Set opacity based on layer opacity  
-        if (obj.baseOpacity !== undefined) {
-          obj.opacity = obj.baseOpacity * layer.opacity;
-        }
-      });
-    });
-    
-    canvas.requestRenderAll();
-  }, [canvas, layers]);
+  // Note: updateObjectZIndices function has been removed as it was not being used
+  // The z-index management is now handled by reorderLayers function
     
   const switchLayer = (newLayer: Layer) => {
     // Don't switch if already on this layer or currently switching
@@ -484,6 +580,22 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     
     // Use the ref to get the current active layer (not stale closure value)
     const currentActiveLayer = activeLayerRef.current;
+    
+    // Check if drawing is allowed on this layer type
+    // Asset layers, background plates, lighting overlays should not allow new paint strokes
+    const layerConstraints = getLayerConstraints(currentActiveLayer.type);
+    if (!layerConstraints.allowDrawing || currentActiveLayer.locked) {
+      const reason = currentActiveLayer.locked 
+        ? `locked layer: ${currentActiveLayer.name}` 
+        : `${currentActiveLayer.type} layer: ${currentActiveLayer.name}`;
+      console.warn('Cannot draw on', reason);
+      // Remove the object that was just added
+      if (canvas) {
+        canvas.remove(object);
+        canvas.requestRenderAll();
+      }
+      return;
+    }
     
     // Generate a unique ID for the object and assign layer ID
     const objectId = uuidv4();
@@ -562,7 +674,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     setLayers(prevLayers => 
       prevLayers.map(layer => 
         layer.id === currentActiveLayer.id 
-          ? { ...layer, objects: [...layer.objects, objectId] }
+          ? { ...layer, objects: [...layer.objects, objectId], isDirty: true, lastModifiedAt: Date.now() }
           : layer
       )
     );
@@ -613,9 +725,9 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       console.log(`  Layer ${layerId}: ${objs.length} objects`);
     });
     
-    // Get current layers and compute new order
-    console.log('Current layers state:', layers.map(l => `${l.name}(${l.id})`));
-    const currentLayers = [...layers];
+    // Get current layers from REF (not state) to avoid stale closure
+    console.log('Current layers from ref:', layersRef.current.map(l => `${l.name}(${l.id})`));
+    const currentLayers = [...layersRef.current];
     const [removed] = currentLayers.splice(oldIndex, 1);
     currentLayers.splice(newIndex, 0, removed);
     
@@ -696,6 +808,24 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     }
   };
 
+  // Mark all layers as clean after a successful snapshot save
+  const markLayersClean = useCallback((snapshotId: string) => {
+    setLayers(prev => prev.map(layer => ({
+      ...layer,
+      isDirty: false,
+      lastSnapshotId: snapshotId,
+    })));
+  }, []);
+
+  // Manually mark a specific layer as dirty (e.g., after object:modified events)
+  const markLayerDirty = useCallback((layerId: string) => {
+    setLayers(prev => prev.map(layer =>
+      layer.id === layerId
+        ? { ...layer, isDirty: true, lastModifiedAt: Date.now() }
+        : layer
+    ));
+  }, []);
+
   // Restore layers from a snapshot (updates both layer state and canvas objects)
   const restoreLayersFromSnapshot = useCallback((snapshotLayers: Array<{
     layerId: string;
@@ -706,6 +836,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     opacity: number;
     blendMode?: string;
     zIndex: number;
+    locked?: boolean;
   }>) => {
     if (!canvas) return;
     
@@ -722,16 +853,20 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       opacity: sl.opacity,
       // Recalculate zIndex based on position (first = highest)
       zIndex: sortedSnapshotLayers.length - 1 - index,
-      locked: false,
+      locked: sl.locked ?? false,
       blendMode: (sl.blendMode as BlendMode) || 'normal',
     }));
     
     // Update layers state
     setLayers(newLayers);
     
+    // Also update the ref directly for immediate access (before useEffect runs)
+    layersRef.current = newLayers;
+    
     // Set first layer as active (top layer)
     if (newLayers.length > 0) {
       setActiveLayer(newLayers[0]);
+      activeLayerRef.current = newLayers[0];
     }
     
     console.log('Restored layers from snapshot:', newLayers.map(l => `${l.name}(z:${l.zIndex})`));
@@ -762,6 +897,10 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     updateLayerBlendMode,
     switchLayer,
     reorderLayers,
-    restoreLayersFromSnapshot
+    restoreLayersFromSnapshot,
+    addAssetLayer,
+    isDrawingAllowed,
+    markLayersClean,
+    markLayerDirty,
   }
 };
