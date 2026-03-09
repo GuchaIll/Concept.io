@@ -9,3 +9,7 @@ export { BrushEditor } from './BrushEditor';
 export { ColorPalette } from './ColorPalette';
 export { SelectToolPanel } from './SelectToolPanel';
 export { SelectionSmartTag } from './SelectionSmartTag';
+export { EditPanel } from './EditPanel';
+export { MaskBrushCanvas } from './MaskBrushCanvas';
+export { OutpaintHandles } from './OutpaintHandles';
+export { ResultPreviewStrip } from './ResultPreviewStrip';

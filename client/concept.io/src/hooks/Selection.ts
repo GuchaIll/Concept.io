@@ -3,7 +3,7 @@ import * as fabric from 'fabric';
 
 export type SelectionMode = 'box' | 'lasso' | 'magic';
 
-export type SelectionAction = 'transform' | 'liquify' | 'effects' | 'generate' | 'append';
+export type SelectionAction = 'transform' | 'liquify' | 'effects' | 'generate' | 'append' | 'edit';
 
 interface SelectionBounds {
   left: number;
@@ -96,20 +96,68 @@ export const useSelection = (canvas: fabric.Canvas | null, isToolActive: boolean
     }
   }, [isToolActive, clearSelectionVisuals]);
 
+  // Sync with Fabric's built-in object selection (click-to-select, shift-click, etc.)
+  useEffect(() => {
+    if (!canvas || !isToolActive) return;
+
+    const syncFromFabric = () => {
+      const active = canvas.getActiveObject();
+      if (!active) return;
+      const br = active.getBoundingRect();
+      setState(prev => ({
+        ...prev,
+        hasSelection: true,
+        hasObjectsSelected: true,
+        selectionBounds: { left: br.left, top: br.top, width: br.width, height: br.height },
+        activeAction: 'transform',
+      }));
+    };
+
+    const handleCleared = () => {
+      // Only clear if we're not in the middle of our own selection flow
+      if (!selectionRect.current && lassoPoints.current.length === 0) {
+        setState(prev => ({
+          ...prev,
+          hasSelection: false,
+          hasObjectsSelected: false,
+          selectionBounds: null,
+        }));
+      }
+    };
+
+    canvas.on('selection:created', syncFromFabric);
+    canvas.on('selection:updated', syncFromFabric);
+    canvas.on('selection:cleared', handleCleared);
+
+    return () => {
+      canvas.off('selection:created', syncFromFabric);
+      canvas.off('selection:updated', syncFromFabric);
+      canvas.off('selection:cleared', handleCleared);
+    };
+  }, [canvas, isToolActive]);
+
   // Handle box selection with persistent visual rectangle
   useEffect(() => {
     if (!canvas || !isToolActive) return;
     
     if (state.mode === 'box') {
-      // Disable Fabric's built-in selection visual (we'll manage our own)
-      canvas.selection = false;
+      // Keep Fabric's built-in selection enabled for object manipulation
+      canvas.selection = true;
       
       let isDrawing = false;
 
       const handleMouseDown = (opt: any) => {
         if (state.mode !== 'box' || !isToolActive) return;
         
-        // Clear previous selection
+        // Check if clicking on an existing object - if so, let Fabric handle it
+        const target = canvas.findTarget(opt.e);
+        if (target && target.selectable) {
+          // User clicked on a selectable object, don't draw selection box
+          // Let Fabric's built-in selection/transformation handle it
+          return;
+        }
+        
+        // Clear previous selection visuals (but not objects)
         clearSelectionVisuals();
         canvas.discardActiveObject();
         
@@ -217,10 +265,8 @@ export const useSelection = (canvas: fabric.Canvas | null, isToolActive: boolean
         canvas.off('mouse:move', handleMouseMove);
         canvas.off('mouse:up', handleMouseUp);
       };
-    } else {
-      // Disable box selection for other modes
-      canvas.selection = false;
     }
+    // Note: Other modes (lasso, magic) handle their own selection settings
   }, [canvas, state.mode, isToolActive, clearSelectionVisuals]);
 
   // Handle lasso selection
@@ -229,11 +275,18 @@ export const useSelection = (canvas: fabric.Canvas | null, isToolActive: boolean
 
     let isDrawing = false;
     
-    // Ensure box selection is disabled
-    canvas.selection = false;
+    // Keep selection enabled for object manipulation
+    canvas.selection = true;
 
     const handleMouseDown = (opt: any) => {
       if (state.mode !== 'lasso' || !isToolActive) return;
+      
+      // Check if clicking on an existing object - if so, let Fabric handle it
+      const target = canvas.findTarget(opt.e);
+      if (target && target.selectable) {
+        // User clicked on a selectable object, don't draw lasso
+        return;
+      }
       
       // Clear previous selection
       clearSelectionVisuals();
@@ -423,11 +476,23 @@ export const useSelection = (canvas: fabric.Canvas | null, isToolActive: boolean
   useEffect(() => {
     if (!canvas || state.mode !== 'magic' || !isToolActive) return;
     
-    canvas.selection = false; // Disable box selection for magic mode
-    canvas.on('mouse:down', performMagicSelect);
+    // Keep selection enabled for object manipulation
+    canvas.selection = true;
+    
+    const handleMagicSelect = (opt: any) => {
+      // Check if clicking on an existing object - if so, let Fabric handle it
+      const target = canvas.findTarget(opt.e);
+      if (target && target.selectable) {
+        // User clicked on a selectable object, don't do magic select
+        return;
+      }
+      performMagicSelect(opt);
+    };
+    
+    canvas.on('mouse:down', handleMagicSelect);
     
     return () => {
-      canvas.off('mouse:down', performMagicSelect);
+      canvas.off('mouse:down', handleMagicSelect);
     };
   }, [canvas, state.mode, isToolActive, performMagicSelect]);
 
