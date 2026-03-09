@@ -17,6 +17,7 @@ export class VersionController extends Controller {
         this.getBranches = this.getBranches.bind(this);
         this.getSnapshots = this.getSnapshots.bind(this);
         this.getSnapshotById = this.getSnapshotById.bind(this);
+        this.getResolvedSnapshot = this.getResolvedSnapshot.bind(this);
         this.createBranch = this.createBranch.bind(this);
         this.createSnapshot = this.createSnapshot.bind(this);
     }
@@ -33,6 +34,9 @@ export class VersionController extends Controller {
         
         // Get a single snapshot by ID
         this.router.get('/:projectId/snapshots/:snapshotId', this.getSnapshotById);
+        
+        // Get a fully resolved snapshot (delta references resolved to full data)
+        this.router.get('/:projectId/snapshots/:snapshotId/resolved', this.getResolvedSnapshot);
         
         // Create a new branch
         this.router.post('/:projectId/branches', this.createBranch);
@@ -131,6 +135,31 @@ export class VersionController extends Controller {
             res.status(500).json({
                 success: false,
                 error: 'Failed to fetch snapshot',
+            });
+        }
+    }
+
+    private async getResolvedSnapshot(req: Request, res: Response) {
+        try {
+            const { snapshotId } = req.params;
+            const resolved = await DAC.db.resolveSnapshot(snapshotId);
+            
+            if (!resolved) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Snapshot not found',
+                });
+            }
+            
+            res.json({
+                success: true,
+                data: resolved,
+            });
+        } catch (error) {
+            console.error('Error resolving snapshot:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to resolve snapshot',
             });
         }
     }

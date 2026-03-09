@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import type { ISnapshot, IBranch, BranchTree } from '../../types/version.interface';
-import { SnapshotCard } from './SnapshotCard';
-import { BranchSelector } from './BranchSelector';
 import { DiffViewer } from './DiffViewer';
 
 interface TimelineProps {
@@ -32,11 +30,11 @@ export const Timeline = ({
   isLoading,
   projectName = 'Untitled Project',
   onCreateSnapshot,
-  onRestoreSnapshot,
+  onRestoreSnapshot: _onRestoreSnapshot,
   onSelectSnapshot,
   onCreateBranch,
   onSwitchBranch,
-  onDeleteBranch,
+  onDeleteBranch: _onDeleteBranch,
   onMergeBranch,
   onClose,
 }: TimelineProps) => {
@@ -176,7 +174,6 @@ export const Timeline = ({
             {/* Main Branch Snapshots */}
             {mainBranchTree?.snapshots.map((snapshot, index) => {
               const isActive = snapshot.id === currentSnapshotId;
-              const isHead = snapshot.id === mainBranchTree.branch.headSnapshotId;
               
               return (
                 <div key={snapshot.id} className="relative flex flex-col items-center group">
@@ -247,7 +244,7 @@ export const Timeline = ({
             </div>
 
             {/* Secondary Branch Nodes (Below main line) */}
-            {otherBranchTrees.map((bt, branchIndex) => (
+            {otherBranchTrees.map((bt) => (
               <div 
                 key={bt.branch.id}
                 className="absolute flex items-center gap-6"
