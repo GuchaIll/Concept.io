@@ -5,7 +5,6 @@ import type {RGBAColor} from './Color';
 import {ColorToString} from './Color';
 import { useTool } from '../contexts/ToolContext';
 import type { ToolType } from '../types/tools';
-import { useCanvasContext } from '../contexts/CanvasContext';
 
 
 export const useBrush = (canvas : fabric.Canvas | null) => {

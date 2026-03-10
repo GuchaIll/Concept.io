@@ -1,5 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { useAssetContext, type IAsset } from '../../contexts/AssetContext';
+import { AssetTypeSelector } from './AssetTypeSelector';
+import type { CutoutSettings, AssetType } from '../../types/asset.interface';
 
 interface AssetVaultPanelProps {
   onClose?: () => void;
@@ -28,9 +30,10 @@ export const AssetVaultPanel = ({ onAssetSelect }: AssetVaultPanelProps) => {
   const [activeCategory, setActiveCategory] = useState<CategoryType>('Textures');
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploadName, setUploadName] = useState('');
-  const [uploadCategory, setUploadCategory] = useState<CategoryType>('Props');
+  const [uploadCategory, setUploadCategory] = useState<CategoryType>('Props'); 
   const [uploadTags, setUploadTags] = useState('');
   const [uploadDimensions, setUploadDimensions] = useState({ width: 0, height: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -135,19 +138,44 @@ export const AssetVaultPanel = ({ onAssetSelect }: AssetVaultPanelProps) => {
       return;
     }
 
-    // Create the asset
+    // Show type selector to choose background/foreground
+    setShowUploadModal(false);
+    setShowTypeSelector(true);
+  };
+
+  // Handle type selection (background or foreground with cutout)
+  const handleTypeSelected = (
+    _type: AssetType,
+    processedImageData: string,
+    _originalImageData?: string,
+    _cutoutSettings?: CutoutSettings
+  ) => {
     const tags = uploadTags.split(',').map(t => t.trim()).filter(t => t);
+    
+    // Create the asset with type info
+    // Note: The createAsset function would need to be updated to accept these new fields
+    // For now, we'll store the cutout info in the tags or use a modified create
     createAsset(
       uploadName.trim(),
-      uploadPreview,
+      processedImageData, // Use the processed (cutout) image for foreground
       tags,
       uploadCategory || 'Props',
       uploadDimensions.width,
       uploadDimensions.height
     );
 
-    // Reset upload state
+    // Reset all upload state
+    resetUploadState();
+  };
+
+  const handleTypeSelectorCancel = () => {
+    setShowTypeSelector(false);
+    setShowUploadModal(true); // Go back to upload modal
+  };
+
+  const resetUploadState = () => {
     setShowUploadModal(false);
+    setShowTypeSelector(false);
     setUploadPreview(null);
     setUploadName('');
     setUploadCategory('Props');
@@ -156,12 +184,7 @@ export const AssetVaultPanel = ({ onAssetSelect }: AssetVaultPanelProps) => {
   };
 
   const handleUploadCancel = () => {
-    setShowUploadModal(false);
-    setUploadPreview(null);
-    setUploadName('');
-    setUploadCategory('Props');
-    setUploadTags('');
-    setUploadDimensions({ width: 0, height: 0 });
+    resetUploadState();
   };
 
   const handleGenerateClick = () => {
@@ -484,11 +507,20 @@ export const AssetVaultPanel = ({ onAssetSelect }: AssetVaultPanelProps) => {
                 onClick={handleUploadConfirm}
                 className="flex-1 py-2.5 bg-primary text-white rounded-xl text-xs font-bold uppercase tracking-wider hover:bg-primary/80 transition-colors"
               >
-                Upload
+                Next
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Asset Type Selector - Background vs Foreground */}
+      {showTypeSelector && uploadPreview && (
+        <AssetTypeSelector
+          imageData={uploadPreview}
+          onTypeSelected={handleTypeSelected}
+          onCancel={handleTypeSelectorCancel}
+        />
       )}
     </aside>
   );

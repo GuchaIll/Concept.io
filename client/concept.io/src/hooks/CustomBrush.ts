@@ -1,5 +1,4 @@
 
-import { useState } from "react";
 export interface CustomBrush {
     name: string;
     size: number;

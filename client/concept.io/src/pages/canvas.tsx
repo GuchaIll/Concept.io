@@ -1,6 +1,6 @@
 import { FCanvas } from '../components/FCanvas'
 import { ToolProvider } from '../contexts/ToolContext'
-import {CanvasProvider, useCanvasContext} from '../contexts/CanvasContext'
+import {CanvasProvider} from '../contexts/CanvasContext'
 import VoiceAssistantRender from '../components/Assistant/VoiceAssistantRender'
 import { ErrorBoundary } from '../contexts/ErrorBoundary';
 
@@ -12,9 +12,7 @@ const Canvas = () => {
               <CanvasProvider>
                   <VoiceAssistantRender />
                   <FCanvas />
-
-                </CanvasProvider>
-              </ErrorBoundary>
+              </CanvasProvider>
           </ToolProvider>
       </div>
    

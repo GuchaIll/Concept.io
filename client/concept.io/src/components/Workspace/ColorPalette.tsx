@@ -71,9 +71,9 @@ export const ColorPalette = ({ currentColor, onColorChange, onClose }: ColorPale
   });
   
   const [harmonyScheme, setHarmonyScheme] = useState<HarmonyScheme>('complementary');
-  const [saturationBias, setSaturationBias] = useState(65);
-  const [luminanceRange, setLuminanceRange] = useState(80);
-  const [contrastCurve, setContrastCurve] = useState(40);
+  const [saturationBias, _setSaturationBias] = useState(65);
+  const [luminanceRange, _setLuminanceRange] = useState(80);
+  const [_contrastCurve, _setContrastCurve] = useState(40);
   
   const wheelRef = useRef<HTMLDivElement>(null);
   const diamondRef = useRef<HTMLDivElement>(null);

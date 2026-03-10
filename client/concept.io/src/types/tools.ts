@@ -11,7 +11,7 @@ export interface Tool {
   icon: LucideIcon;
   label: string;
   hasSubmenu?: boolean;
-  submenuType?: 'shape' | 'text' | 'brush';
+  submenuType?: 'shape' | 'text' | 'brush' | 'select';
 }
 
 export interface ToolState {
