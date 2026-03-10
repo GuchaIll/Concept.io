@@ -1,6 +1,6 @@
 import * as fabric from 'fabric';
 import {UserSessionProfile} from './userSessionProfile'
-
+import { type IUser } from  '../common/user.interface';
 
 type CanvasEvent = {
     type: 'object:added' | 'object:modified' | 'object:removed' | 'canvas:clear' | 'layer:updated';
@@ -53,10 +53,14 @@ export class WebSocketService
 
         this.ws.onmessage = (message) => {
             console.log(message);
-            const data: CanvasEvent = JSON.parse(message['data']);
+            const data = JSON.parse(message['data']);
             if(data.userId !== this.userId)
             {
-                this.handleCanvasEvent(data);
+                if (data.type.startsWith('message:')) {                    
+                    this.handleMessageEvent(data);
+                } else {
+                    this.handleCanvasEvent(data);
+                }
             }
         };
 
@@ -76,6 +80,10 @@ export class WebSocketService
         this.onMessageAdded = callbacks.onMessageAdded;
         this.onMessageModified = callbacks.onMessageModified;
         this.onMessageRemoved = callbacks.onMessageRemoved;
+    }
+
+    public isConnected(): boolean {
+        return this.ws.readyState === WebSocket.OPEN;
     }
     
 
@@ -122,8 +130,8 @@ export class WebSocketService
     private initiateMessageEvent(user: { id: string; name: string }, message: string, placeHolder: boolean)
     {
         const payload = {
-            userId: user.id,
-            userName: user.name,
+            userId: user._id,
+            userName: user.displayName,
             message,
             placeHolder,
         }

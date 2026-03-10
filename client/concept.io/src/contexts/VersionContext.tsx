@@ -37,7 +37,7 @@ interface VersionContextType {
   // Actions
   createSnapshot: (name: string, description?: string) => ISnapshot | null;
   updateCurrentSnapshot: () => void;
-  restoreSnapshot: (snapshotId: string) => boolean;
+  restoreSnapshot: (snapshotId: string) => Promise<boolean>;
   createBranch: (name: string, fromSnapshotId?: string, color?: string) => IBranch | null;
   switchBranch: (branchId: string) => boolean;
   deleteBranch: (branchId: string) => boolean;
@@ -79,12 +79,23 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
 
   // Track snapshot to restore when canvas becomes available
   const [pendingRestoreSnapshotId, setPendingRestoreSnapshotId] = useState<string | null>(null);
+  // Store the full snapshot data for pending restore (in case state gets cleared during navigation)
+  const pendingRestoreSnapshotRef = useRef<ISnapshot | null>(null);
 
   const canvasRef = useRef<fabric.Canvas | null>(null);
   const layersRef = useRef<Layer[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
+  const snapshotsRef = useRef<ISnapshot[]>([]); // Keep a ref to avoid stale closures
   const initialized = useRef(false);
   const socketListenersAttached = useRef(false);
+  // Generation counter for direct canvas restores (branch switch etc.).
+  // Incremented before each restore so in-flight async operations can detect supersession.
+  const restoreGenRef = useRef(0);
+
+  // Keep snapshots ref in sync with state
+  useEffect(() => {
+    snapshotsRef.current = state.snapshots;
+  }, [state.snapshots]);
 
   // Setters for canvas, layers, and socket
   const setCanvas = useCallback((canvas: fabric.Canvas | null) => {
@@ -139,11 +150,12 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
   }, []);
 
   // Serialize current layer state with proper ordering
-  const serializeLayers = useCallback((): ILayerSnapshot[] => {
+  // Supports delta mode: only dirty layers get full serialization, clean layers emit references
+  const serializeLayers = useCallback((deltaMode: boolean = false, _currentSnapshotIdForRef?: string | null): ILayerSnapshot[] => {
     const canvas = canvasRef.current;
     const layers = layersRef.current;
     
-    console.log('serializeLayers called - canvas:', !!canvas, 'layers:', layers.length);
+    console.log('serializeLayers called - canvas:', !!canvas, 'layers:', layers.length, 'deltaMode:', deltaMode);
     
     if (!canvas) {
       console.warn('serializeLayers: No canvas available');
@@ -159,6 +171,25 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
     console.log('Total canvas objects:', allObjects.length);
 
     return layers.map((layer, index) => {
+      // Delta mode: if layer is clean and has a previous snapshot reference, emit a reference
+      if (deltaMode && !layer.isDirty && layer.lastSnapshotId) {
+        console.log(`Layer "${layer.name}" is clean — emitting reference to snapshot ${layer.lastSnapshotId}`);
+        return {
+          layerId: layer.id,
+          name: layer.name,
+          type: layer.type,
+          objects: '[]',  // Empty — data lives in the referenced snapshot
+          visible: layer.visible,
+          opacity: layer.opacity,
+          blendMode: layer.blendMode || 'normal',
+          locked: layer.locked ?? false,
+          zIndex: layers.length - 1 - index,
+          snapshotType: 'reference' as const,
+          referenceSnapshotId: layer.lastSnapshotId,
+        };
+      }
+
+      // Full serialization for dirty layers or non-delta mode
       // Get objects for this layer - check both layerId and 'base' as default
       const layerObjects = allObjects.filter(obj => {
         // If object has no layerId, assign it to the first/base layer
@@ -166,9 +197,18 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
         return obj.layerId === layer.id;
       });
       
-      console.log(`Layer "${layer.name}" (${layer.id}): ${layerObjects.length} objects`);
+      console.log(`Layer "${layer.name}" (${layer.id}): ${layerObjects.length} objects (full serialization)`);
       
-      const serializedObjects = layerObjects.map(obj => obj.toJSON(['layerId', 'id', 'baseOpacity']));
+      const serializedObjects = layerObjects.map(obj => {
+        const json = obj.toJSON();
+        // Manually add custom properties
+        return {
+          ...json,
+          layerId: obj.layerId,
+          id: (obj as any).id,
+          baseOpacity: obj.baseOpacity,
+        };
+      });
 
       return {
         layerId: layer.id,
@@ -178,12 +218,47 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
         visible: layer.visible,
         opacity: layer.opacity,
         blendMode: layer.blendMode || 'normal',
+        locked: layer.locked ?? false,
         // Higher index in array = lower in UI = lower zIndex
         // First layer (index 0) = top of UI = highest zIndex
         zIndex: layers.length - 1 - index,
+        snapshotType: 'full' as const,
       };
     });
   }, []);
+
+  // Helper function to merge server snapshots with local snapshots
+  // Prefers snapshots with actual layer data over empty ones
+  const mergeSnapshots = (serverSnapshots: ISnapshot[], localSnapshots: ISnapshot[]): ISnapshot[] => {
+    const mergedMap = new Map<string, ISnapshot>();
+    
+    // Add all local snapshots first
+    localSnapshots.forEach(snapshot => {
+      mergedMap.set(snapshot.id, snapshot);
+    });
+    
+    // Merge server snapshots - prefer ones with more data
+    serverSnapshots.forEach(serverSnapshot => {
+      const existing = mergedMap.get(serverSnapshot.id);
+      
+      if (!existing) {
+        // New snapshot from server
+        mergedMap.set(serverSnapshot.id, serverSnapshot);
+      } else {
+        // Compare which has more data
+        const existingHasData = hasSnapshotData(existing);
+        const serverHasData = hasSnapshotData(serverSnapshot);
+        
+        // Prefer the one with actual data, or server if both have data (more recent)
+        if (serverHasData && (!existingHasData || serverSnapshot.createdAt > existing.createdAt)) {
+          mergedMap.set(serverSnapshot.id, serverSnapshot);
+        }
+      }
+    });
+    
+    // Sort by creation time
+    return Array.from(mergedMap.values()).sort((a, b) => a.createdAt - b.createdAt);
+  };
 
   // Send message via WebSocket
   const sendSocketMessage = useCallback((type: string, payload: any) => {
@@ -209,10 +284,12 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
       
       switch (data.type) {
         case 'version:sync': {
-          const mergedSnapshots = mergeSnapshots(data.payload.snapshots || [], state.snapshots);
+          // Use ref to get latest local snapshots to avoid stale closure
+          const mergedSnapshots = mergeSnapshots(data.payload.snapshots || [], snapshotsRef.current);
           console.log('Received version sync:', {
             branchesCount: data.payload.branches?.length,
             snapshotsCount: mergedSnapshots?.length,
+            localSnapshotsCount: snapshotsRef.current.length,
             snapshots: mergedSnapshots?.map((s: any) => ({
               name: s.name,
               id: s.id?.substring(0, 8),
@@ -233,32 +310,50 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
         }
 
         case 'version:snapshot:created':
-          console.log('Snapshot created:', data.payload);
+          console.log('Snapshot created broadcast:', data.payload?.name, data.payload?.id?.substring(0, 8));
           setState(prev => {
-            // Check if this is an update to existing "Current" snapshot
-            const existingCurrentIndex = prev.snapshots.findIndex(
-              s => s.name === 'Current' && s.branchId === data.payload.branchId
-            );
-            
+            // Check if we already have this exact snapshot locally (by ID).
+            // Since we now save optimistically before the WS round-trip, the originating client
+            // will already have the snapshot. Prefer local data over server version to avoid
+            // overwriting a good local snapshot (with full image objects) with a potentially
+            // stripped server version (if a large WS message was partially saved).
+            const existingById = prev.snapshots.find(s => s.id === data.payload.id);
+            if (existingById) {
+              // Already have this snapshot — only accept server version if it has MORE data
+              // (e.g., from a collaborator's snapshot that we don't have locally).
+              if (hasSnapshotData(data.payload) && !hasSnapshotData(existingById)) {
+                const newSnapshots = prev.snapshots.map(s =>
+                  s.id === data.payload.id ? data.payload : s
+                );
+                return { ...prev, snapshots: newSnapshots };
+              }
+              return prev; // Keep our local (optimistic) version
+            }
+
+            // New snapshot from a collaborator — add it
             let newSnapshots;
-            if (data.payload.name === 'Current' && existingCurrentIndex >= 0) {
-              // Replace existing Current snapshot
-              newSnapshots = [...prev.snapshots];
-              newSnapshots[existingCurrentIndex] = data.payload;
-            } else if (prev.snapshots.some(s => s.id === data.payload.id)) {
-              // Avoid duplicates
-              return prev;
+            if (data.payload.name === 'Current') {
+              // Replace existing "Current" on the same branch (collaborator update)
+              const existingCurrentIndex = prev.snapshots.findIndex(
+                s => s.name === 'Current' && s.branchId === data.payload.branchId
+              );
+              if (existingCurrentIndex >= 0) {
+                newSnapshots = [...prev.snapshots];
+                newSnapshots[existingCurrentIndex] = data.payload;
+              } else {
+                newSnapshots = [...prev.snapshots, data.payload];
+              }
             } else {
               newSnapshots = [...prev.snapshots, data.payload];
             }
-            
+
             // Update branch head
             const updatedBranches = prev.branches.map(branch =>
               branch.id === data.payload.branchId
                 ? { ...branch, headSnapshotId: data.payload.id }
                 : branch
             );
-            
+
             return {
               ...prev,
               snapshots: newSnapshots,
@@ -392,10 +487,14 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
       const canvasHasObjects = canvasRef.current && canvasRef.current.getObjects().length > 0;
 
       if (canvasHasObjects) {
-        snapshotLayers = serializeLayers();
+        // Use delta mode: only serialize dirty layers fully, reference clean layers
+        const useDeltaMode = name !== 'Current' && !!state.currentSnapshotId;
+        snapshotLayers = serializeLayers(useDeltaMode, state.currentSnapshotId);
         snapshotThumbnail = generateThumbnail();
         sourceSnapshotId = state.currentSnapshotId || currentBranch.headSnapshotId || undefined;
-        console.log('Creating snapshot from canvas - layers:', snapshotLayers.length, 'thumbnail length:', snapshotThumbnail.length);
+        const deltaCount = snapshotLayers.filter(l => l.snapshotType === 'reference').length;
+        const fullCount = snapshotLayers.filter(l => l.snapshotType === 'full').length;
+        console.log(`Creating snapshot from canvas - layers: ${snapshotLayers.length} (${fullCount} full, ${deltaCount} reference), thumbnail length: ${snapshotThumbnail.length}`);
       } else {
         // If no canvas (e.g., on Timeline page), copy from current/head snapshot
         console.log('No canvas, looking for snapshot to copy from:', {
@@ -452,7 +551,57 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
         }
       }
 
-      const sent = sendSocketMessage('version:snapshot:create', {
+      // Always save locally first (optimistic update) — do NOT rely solely on WS broadcast.
+      // If the WS message is too large (e.g., asset layer with a full image data URL) the server
+      // may fail silently and never broadcast back, which would wipe the snapshot from local state.
+      const snapshot: ISnapshot = {
+        id: uuidv4(),
+        projectId,
+        branchId: state.currentBranchId,
+        name,
+        description,
+        layers: snapshotLayers,
+        thumbnail: snapshotThumbnail,
+        createdBy: userId,
+        createdAt: Date.now(),
+        parentSnapshotId: currentBranch.headSnapshotId || undefined,
+      };
+
+      setState(prev => {
+        // Check if updating existing "Current"
+        const existingCurrentIndex = prev.snapshots.findIndex(
+          s => s.name === 'Current' && s.branchId === state.currentBranchId
+        );
+
+        let newSnapshots;
+        if (name === 'Current' && existingCurrentIndex >= 0) {
+          newSnapshots = [...prev.snapshots];
+          newSnapshots[existingCurrentIndex] = snapshot;
+        } else {
+          newSnapshots = [...prev.snapshots, snapshot];
+        }
+
+        const updatedBranches = prev.branches.map(branch =>
+          branch.id === state.currentBranchId
+            ? { ...branch, headSnapshotId: snapshot.id }
+            : branch
+        );
+
+        return {
+          ...prev,
+          snapshots: newSnapshots,
+          branches: updatedBranches,
+          currentSnapshotId: snapshot.id,
+          isLoading: false,
+          error: null,
+        };
+      });
+
+      // Also sync to server via WebSocket (best-effort for persistence & collaborator broadcast).
+      // Pass our locally-generated ID so the server uses the same ID — this lets the
+      // version:snapshot:created broadcast be de-duplicated on receipt.
+      sendSocketMessage('version:snapshot:create', {
+        id: snapshot.id,
         name,
         description,
         layers: snapshotLayers,
@@ -461,56 +610,8 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
         sourceSnapshotId,
       });
 
-      if (!sent) {
-        // Local fallback
-        const snapshot: ISnapshot = {
-          id: uuidv4(),
-          projectId,
-          branchId: state.currentBranchId,
-          name,
-          description,
-          layers: snapshotLayers,
-          thumbnail: snapshotThumbnail,
-          createdBy: userId,
-          createdAt: Date.now(),
-          parentSnapshotId: currentBranch.headSnapshotId || undefined,
-        };
-
-        setState(prev => {
-          // Check if updating existing "Current"
-          const existingCurrentIndex = prev.snapshots.findIndex(
-            s => s.name === 'Current' && s.branchId === state.currentBranchId
-          );
-          
-          let newSnapshots;
-          if (name === 'Current' && existingCurrentIndex >= 0) {
-            newSnapshots = [...prev.snapshots];
-            newSnapshots[existingCurrentIndex] = snapshot;
-          } else {
-            newSnapshots = [...prev.snapshots, snapshot];
-          }
-
-          const updatedBranches = prev.branches.map(branch =>
-            branch.id === state.currentBranchId
-              ? { ...branch, headSnapshotId: snapshot.id }
-              : branch
-          );
-
-          return {
-            ...prev,
-            snapshots: newSnapshots,
-            branches: updatedBranches,
-            currentSnapshotId: snapshot.id,
-            isLoading: false,
-            error: null,
-          };
-        });
-
-        return snapshot;
-      }
-
-      console.log('Snapshot creation request sent:', name);
-      return null;
+      console.log('Snapshot saved locally and sync request sent:', name, snapshot.id.substring(0, 8));
+      return snapshot;
     } catch (error) {
       console.error('Failed to create snapshot:', error);
       setState(prev => ({
@@ -527,20 +628,77 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
     createSnapshot('Current', 'Auto-saved current canvas state');
   }, [createSnapshot]);
 
+  // Resolve a snapshot's reference layers — fetches full data from server if needed
+  const resolveSnapshotLayers = useCallback(async (snapshot: ISnapshot): Promise<ILayerSnapshot[]> => {
+    const hasReferences = snapshot.layers.some(l => l.snapshotType === 'reference');
+    if (!hasReferences) return snapshot.layers;
+
+    // Try server-side resolution first
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/projects/${snapshot.projectId}/snapshots/${snapshot.id}/resolved`
+      );
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data?.layers) {
+          console.log('Resolved delta snapshot from server:', snapshot.name);
+          return result.data.layers;
+        }
+      }
+    } catch (e) {
+      console.warn('Server-side delta resolution failed, trying client-side:', e);
+    }
+
+    // Client-side fallback: walk snapshotsRef to resolve references
+    const resolvedLayers: ILayerSnapshot[] = [];
+    for (const layer of snapshot.layers) {
+      if (layer.snapshotType === 'reference' && layer.referenceSnapshotId) {
+        const refSnapshot = snapshotsRef.current.find(s => s.id === layer.referenceSnapshotId);
+        if (refSnapshot) {
+          const refLayer = refSnapshot.layers.find(l => l.layerId === layer.layerId);
+          if (refLayer && refLayer.snapshotType !== 'reference') {
+            resolvedLayers.push({ ...layer, objects: refLayer.objects, snapshotType: 'full' });
+            continue;
+          }
+        }
+        // Could not resolve — use empty
+        console.warn(`Could not resolve client-side reference for layer ${layer.layerId}`);
+        resolvedLayers.push({ ...layer, snapshotType: 'full' });
+      } else {
+        resolvedLayers.push(layer);
+      }
+    }
+    return resolvedLayers;
+  }, []);
+
   // Restore a snapshot to canvas
-  const restoreSnapshot = useCallback((snapshotId: string): boolean => {
+  const restoreSnapshot = useCallback(async (snapshotId: string): Promise<boolean> => {
     const canvas = canvasRef.current;
+    // Use ref to get latest snapshots to avoid stale closure
+    const currentSnapshots = snapshotsRef.current;
     
-    const snapshot = state.snapshots.find(s => s.id === snapshotId);
+    console.log('restoreSnapshot called with:', snapshotId);
+    console.log('Available snapshots:', currentSnapshots.map(s => ({ id: s.id, name: s.name })));
+    
+    const snapshot = currentSnapshots.find(s => s.id === snapshotId);
     if (!snapshot) {
+      console.error('Snapshot not found:', snapshotId);
       setState(prev => ({ ...prev, error: 'Snapshot not found' }));
       return false;
     }
+    
+    console.log('Found snapshot:', snapshot.name, 'layers:', snapshot.layers?.length);
 
-    // If canvas not available, queue the restore for when it becomes available
-    if (!canvas) {
-      console.log('Canvas not ready, queuing snapshot restore:', snapshot.name);
+    // Check if canvas is available AND valid (has context - not disposed)
+    // When navigating away from canvas page, the canvas may still exist in ref but be disposed
+    const isCanvasValid = canvas && canvas.getContext && canvas.getContext();
+    
+    // If canvas not available or not valid, queue the restore for when it becomes available
+    if (!isCanvasValid) {
+      console.log('Canvas not ready or disposed, queuing snapshot restore:', snapshot.name);
+      // Store both the ID and the full snapshot data
       setPendingRestoreSnapshotId(snapshotId);
+      pendingRestoreSnapshotRef.current = snapshot; // Store full data in ref
       setState(prev => ({
         ...prev,
         currentSnapshotId: snapshotId,
@@ -556,31 +714,46 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
       canvas.clear();
       canvas.backgroundColor = 'white';
 
-      // Sort layers by zIndex to restore in correct order
-      const sortedLayers = [...snapshot.layers].sort((a, b) => a.zIndex - b.zIndex);
+      // Resolve delta references before restoring
+      const resolvedLayers = snapshot.layers.some(l => l.snapshotType === 'reference')
+        ? await resolveSnapshotLayers(snapshot)
+        : snapshot.layers;
 
-      // Restore each layer's objects
-      sortedLayers.forEach(layerSnapshot => {
+      // Sort layers by zIndex to restore in correct order
+      const sortedLayers = [...resolvedLayers].sort((a, b) => a.zIndex - b.zIndex);
+
+      // Capture generation — abort if a newer restore supersedes this one
+      const currentGen = ++restoreGenRef.current;
+
+      // Restore each layer's objects using sequential async/await to maintain order
+      for (const layerSnapshot of sortedLayers) {
+        if (restoreGenRef.current !== currentGen) {
+          console.log('restoreSnapshot (VersionContext): aborted (superseded)');
+          return false;
+        }
         try {
           const objects = JSON.parse(layerSnapshot.objects || '[]');
-          
-          objects.forEach((objData: any) => {
-            fabric.util.enlivenObjects([objData]).then((enlivenedObjects) => {
-              enlivenedObjects.forEach((obj: fabric.FabricObject) => {
-                obj.layerId = layerSnapshot.layerId;
-                if (!layerSnapshot.visible) {
-                  obj.visible = false;
-                }
-                obj.opacity = (obj.opacity || 1) * layerSnapshot.opacity;
-                canvas.add(obj);
-              });
-              canvas.requestRenderAll();
+          for (const objData of objects) {
+            if (restoreGenRef.current !== currentGen) return false;
+            const enlivenedObjects = await fabric.util.enlivenObjects([objData]);
+            if (restoreGenRef.current !== currentGen) return false;
+            (enlivenedObjects as fabric.FabricObject[]).forEach((obj: fabric.FabricObject) => {
+              obj.layerId = layerSnapshot.layerId;
+              if (!layerSnapshot.visible) {
+                obj.visible = false;
+              }
+              obj.opacity = (obj.opacity || 1) * layerSnapshot.opacity;
+              canvas.add(obj);
             });
-          });
+          }
         } catch (e) {
           console.error('Error restoring layer:', layerSnapshot.name, e);
         }
-      });
+      }
+
+      if (restoreGenRef.current !== currentGen) return false;
+
+      canvas.requestRenderAll();
 
       setState(prev => ({
         ...prev,
@@ -603,7 +776,7 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
       }));
       return false;
     }
-  }, [state.snapshots, sendSocketMessage]);
+  }, [sendSocketMessage]);
 
   // Create a new branch
   const createBranch = useCallback((name: string, fromSnapshotId?: string, color?: string): IBranch | null => {
@@ -723,35 +896,41 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
   // Clear pending restore after it's been processed
   const clearPendingRestore = useCallback(() => {
     setPendingRestoreSnapshotId(null);
+    pendingRestoreSnapshotRef.current = null;
   }, []);
 
   // Getters
   const getBranchTrees = useCallback((): BranchTree[] => {
     return state.branches.map(branch => {
-      const branchSnapshots = state.snapshots
+      const branchSnapshots = snapshotsRef.current
         .filter(s => s.branchId === branch.id)
         .sort((a, b) => a.createdAt - b.createdAt);
       const headSnapshot = branchSnapshots.find(s => s.id === branch.headSnapshotId) || null;
       return { branch, snapshots: branchSnapshots, headSnapshot };
     });
-  }, [state.branches, state.snapshots]);
+  }, [state.branches]);
 
   const getCurrentBranch = useCallback((): IBranch | null => {
     return state.branches.find(b => b.id === state.currentBranchId) || null;
   }, [state.branches, state.currentBranchId]);
 
   const getCurrentSnapshot = useCallback((): ISnapshot | null => {
-    return state.snapshots.find(s => s.id === state.currentSnapshotId) || null;
-  }, [state.snapshots, state.currentSnapshotId]);
+    return snapshotsRef.current.find(s => s.id === state.currentSnapshotId) || null;
+  }, [state.currentSnapshotId]);
 
   const getSelectedSnapshot = useCallback((): ISnapshot | null => {
-    return state.snapshots.find(s => s.id === state.selectedSnapshotId) || null;
-  }, [state.snapshots, state.selectedSnapshotId]);
+    return snapshotsRef.current.find(s => s.id === state.selectedSnapshotId) || null;
+  }, [state.selectedSnapshotId]);
 
   const getPendingRestoreSnapshot = useCallback((): ISnapshot | null => {
     if (!pendingRestoreSnapshotId) return null;
-    return state.snapshots.find(s => s.id === pendingRestoreSnapshotId) || null;
-  }, [state.snapshots, pendingRestoreSnapshotId]);
+    // First check if we have the full data stored in ref (most reliable)
+    if (pendingRestoreSnapshotRef.current && pendingRestoreSnapshotRef.current.id === pendingRestoreSnapshotId) {
+      return pendingRestoreSnapshotRef.current;
+    }
+    // Fallback to looking up in snapshotsRef
+    return snapshotsRef.current.find(s => s.id === pendingRestoreSnapshotId) || null;
+  }, [pendingRestoreSnapshotId]);
 
   const value: VersionContextType = {
     branches: state.branches,
