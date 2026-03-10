@@ -67,8 +67,8 @@ class App {
         this.app.use(helmet()); //for securing the app by setting various HTTP headers
         this.app.use(compression()); //for compressing the response bodies
 
-        this.app.use(express.json()); //for parsing request's json body
-        this.app.use(express.urlencoded({ extended: true }));//for decoding the encoded url
+        this.app.use(express.json({ limit: '100mb' })); //for parsing request's json body - increased limit for large images
+        this.app.use(express.urlencoded({ extended: true, limit: '100mb' }));//for decoding the encoded url
 
         this.app.get('/', (req, res) => {
             res.json({ message: 'Server is running' });
