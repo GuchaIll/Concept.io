@@ -9,6 +9,8 @@ import {useBrush} from './Brush';
 // import { useBrushContext } from '../contexts/BrushContext';
 import { useFill } from './Fill';
 import { useSelection } from './Selection';
+import { isToolAllowed, getBlockedToolMessage } from '../config/layerConstraints';
+import { useToast } from '../components/Toast';
 
 export interface CanvasConfig {
   width?: number;
@@ -34,6 +36,7 @@ export const useCanvas = (config?: CanvasConfig) => {
   const layer = useLayers(canvas);
   const { EraseModeOn, toggleEraseMode } = useEraser(canvas);
   const brushProps = useBrush(canvas);
+  const toast = useToast();
   
   // Only enable selection when select tool is active
   const isSelectToolActive = toolState.activeToolId === 'select';
@@ -369,14 +372,27 @@ export const useCanvas = (config?: CanvasConfig) => {
           defaultCursor: 'crosshair'
         };
         break;
-      case 'eraser':
-        newState = {
-          isDrawingMode: true,
-          selection: false,
-          defaultCursor: 'crosshair'
-        };
-        
+      case 'eraser': {
+        // Proactive layer constraint check — block eraser if layer doesn't allow drawing
+        const activeLayerE = layer.activeLayer;
+        const eraserAllowed = isToolAllowed('eraser', activeLayerE.type, activeLayerE.locked);
+        if (!eraserAllowed) {
+          const msg = getBlockedToolMessage('eraser', activeLayerE.type, activeLayerE.locked);
+          if (msg) toast.addToast(msg, 'warning');
+          newState = {
+            isDrawingMode: false,
+            selection: false,
+            defaultCursor: 'not-allowed'
+          };
+        } else {
+          newState = {
+            isDrawingMode: true,
+            selection: false,
+            defaultCursor: 'crosshair'
+          };
+        }
         break;
+      }
       case 'Fill':
       case 'shape':
         newState = {
@@ -385,13 +401,27 @@ export const useCanvas = (config?: CanvasConfig) => {
           defaultCursor: 'crosshair'
         };
         break;
-      case 'brush':
-        newState = {
-          isDrawingMode: true,
-          selection: false,
-          defaultCursor: 'crosshair'
-        };
+      case 'brush': {
+        // Proactive layer constraint check — block brush if layer doesn't allow drawing
+        const activeLayer = layer.activeLayer;
+        const brushAllowed = isToolAllowed('brush', activeLayer.type, activeLayer.locked);
+        if (!brushAllowed) {
+          const msg = getBlockedToolMessage('brush', activeLayer.type, activeLayer.locked);
+          if (msg) toast.addToast(msg, 'warning');
+          newState = {
+            isDrawingMode: false,
+            selection: false,
+            defaultCursor: 'not-allowed'
+          };
+        } else {
+          newState = {
+            isDrawingMode: true,
+            selection: false,
+            defaultCursor: 'crosshair'
+          };
+        }
         break;
+      }
       case 'pan':
         newState = {
           isDrawingMode: false,
@@ -469,6 +499,7 @@ export const useCanvas = (config?: CanvasConfig) => {
     toggleEraser: toggleEraseMode,
     brushProps,
     selection,
+    toast,
     // Zoom controls
     zoomLevel,
     zoomIn,

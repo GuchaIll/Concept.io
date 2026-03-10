@@ -12,7 +12,7 @@ interface BottomActionBarProps {
 export const BottomActionBar = ({
   onUndo,
   onRedo,
-  diffusionPrompt = '',
+  diffusionPrompt: _diffusionPrompt = '',
   onDiffusionClick,
   zoomLevel = 1,
   onZoomIn,

@@ -45,8 +45,8 @@ export const BrushEditor = ({ brushProps, onClose }: BrushEditorProps) => {
     setBrushOpacity 
   } = brushProps;
 
-  const [tipAngle, setTipAngle] = useState(45);
-  const [tipRoundness, setTipRoundness] = useState(80);
+  const [tipAngle, _setTipAngle] = useState(45);
+  const [tipRoundness, _setTipRoundness] = useState(80);
   const [hardness, setHardness] = useState(20);
   const [spacing, setSpacing] = useState(15);
 
