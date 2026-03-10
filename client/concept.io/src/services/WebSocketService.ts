@@ -22,9 +22,10 @@ export class WebSocketService
     private roomId: string;
     static instance: WebSocketService | null = null;
     
-    private onMessageAdded?: (message: any) => void;
-    private onMessageModified?: (message: any) => void;
-    private onMessageRemoved?: (message: any) => void;
+    // Message handlers - used by setCallbacks and handleMessageEvent
+    public onMessageAdded?: (message: any) => void;
+    public onMessageModified?: (message: any) => void;
+    public onMessageRemoved?: (message: any) => void;
 
     constructor(url : string, userId: string, roomId: string) {
         
@@ -115,7 +116,10 @@ export class WebSocketService
     }
     //When user began typing new message in chat, send a message box with placeholder text
     //Remove placeholder if the user stops typing
-    private initiateMessageEvent(user: IUser, message: string, placeHolder: boolean)
+    // Note: These methods are available but not currently exposed publicly
+    // Private methods for future chat functionality
+    /*
+    private initiateMessageEvent(user: { id: string; name: string }, message: string, placeHolder: boolean)
     {
         const payload = {
             userId: user.id,
@@ -126,23 +130,22 @@ export class WebSocketService
         this.sendMessageEvent('message:placeholder', payload, placeHolder);
     }
    private handleMessageEvent(messageEvent : MessageEvent) {
-        
         switch(messageEvent.type) {
             case 'message:added':
                 this.onMessageAdded?.(messageEvent.payload);
                 break;
-                case 'message:modified':
-                    this.onMessageModified?.(messageEvent.payload);
-                    break;
-                    case 'message:removed':
-                        this.onMessageRemoved?.(messageEvent.payload);
-                        break;
-                        case 'message:placeholder':
-                            this.onMessageAdded?.(messageEvent.payload);
-                            break;
+            case 'message:modified':
+                this.onMessageModified?.(messageEvent.payload);
+                break;
+            case 'message:removed':
+                this.onMessageRemoved?.(messageEvent.payload);
+                break;
+            case 'message:placeholder':
+                this.onMessageAdded?.(messageEvent.payload);
+                break;
         }
-        
    }
+   */
     private handleCanvasEvent(event: CanvasEvent) { 
         if(!this.canvas) return;
         
@@ -195,7 +198,9 @@ export class WebSocketService
             roomId: this.roomId,
         }));
     }
-    private sendMessageEvent(type: MessageEvent['type'], payload: any, placeHolder: boolean) {
+    
+    // Public method for sending chat messages
+    public sendMessageEvent(type: MessageEvent['type'], payload: any, placeHolder: boolean) {
         this.ws.send(JSON.stringify({
             type,
             payload,
