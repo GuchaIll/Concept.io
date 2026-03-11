@@ -1,3 +1,5 @@
+import { ProjectSwitcher } from './ProjectSwitcher';
+
 interface TopUtilityBarProps {
   onBack?: () => void;
   onShare?: () => void;
@@ -35,6 +37,9 @@ export const TopUtilityBar = ({
             {isLive ? 'Live Sync' : 'Offline'}
           </span>
         </div>
+
+        {/* Project Switcher */}
+        <ProjectSwitcher />
       </div>
 
       {/* Right Section */}
