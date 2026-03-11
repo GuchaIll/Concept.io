@@ -1,0 +1,120 @@
+# AI Image Editing — Implementation Plan
+# ========================================
+# Phase 1: SDXL inpainting + ControlNet-Union + IP-Adapter-Plus-XL + CosXL-Edit
+# Phase 2: FLUX.1-schnell + flux-controlnet-depth
+# Full details in server/diffusion-service/image_edit.md
+# ========================================
+
+## PHASE 1 TASKS
+
+[x] 1.1  Download weights (run once):
+[x] 1.2  Update requirements.txt:
+         - bump diffusers>=0.30
+         - add controlnet-aux>=0.0.9
+[x] 1.3  app/config.py:
+         - import StableDiffusionXLInpaintPipeline, StableDiffusionXLControlNetPipeline,
+                 ControlNetModel, AutoPipelineForInpainting, StableDiffusionXLImg2ImgPipeline,
+                 EulerDiscreteScheduler from diffusers
+         - add constants: CONTROLNET_UNION_PATH, IP_ADAPTER_DIR, IP_ADAPTER_WEIGHTS, COSXL_EDIT_PATH
+[x] 1.4  app/services/pipeline.py — add below load_sdxl_pipeline():
+         - load_inpaint_pipeline()     → AutoPipelineForInpainting.from_pipe(sdxl_base)
+         - load_controlnet_pipeline()  → ControlNetModel + StableDiffusionXLControlNetPipeline (shared VAE/encoders)
+         - load_cosxl_pipeline()       → deep-copy sdxl UNet, load cosxl_edit.safetensors, set EDM EulerDiscreteScheduler
+                                         (sigma_min=0.002, sigma_max=120.0, timestep_spacing="leading")
+         - attach_ip_adapter(pipe)     → pipe.load_ip_adapter(...) idempotent helper
+[x] 1.5  pipeines/inpaint.py — replace empty stub:
+         run_inpaint(image, mask, prompt, ...) → returns PIL image
+[x] 1.6  pipeines/controlnet.py — replace empty stub:
+         run_controlnet(control_image, prompt, control_type, ...) → returns PIL image
+         extract_depth(image) → DPTDetector from controlnet_aux
+         extract_pose(image)  → OpenposeDetector from controlnet_aux
+         extract_canny(image) → CannyDetector from controlnet_aux
+         ControlType IntEnum with correct Python-safe names (SOFT_EDGE not soft-edge)
+[x] 1.7  app/models.py — add to ModelType enum:
+         EDIT = "edit"
+         FLUX = "flux"
+         Add new classes: EditMode (str,Enum), EditRequest, EditResponse
+[x] 1.8  app/routes/edit.py — complete implementation:
+         POST /edit  → dispatches to _run_inpaint / _run_controlnet / _run_cosxl / _run_flux(stub)
+         _run_cosxl: CosXL-Edit img2img; attaches IP-Adapter when reference_image_data present
+         _run_flux:  stub that calls FluxEditAdapter().edit(req)  (filled in Phase 2)
+[x] 1.9  app/__init__.py — include edit_router
+[x] 1.10 app/routes/__init__.py — export edit_router
+
+[x] 1.10 server/src/controllers/edit.controller.ts — CREATED (EditController)
+         Proxy POST /api/edit → Python /edit
+         camelCase ↔ snake_case key mapping (mirrors CutoutController pattern)
+[x]      client/concept.io/src/hooks/useEdit.ts — CREATED
+         editImage(imageData, prompt, options) → EditResult
+         supports: mode, model, maskData, referenceImageData, strength, controlnetType, IP-Adapter scale
+         exported from hooks/index.ts
+[x]      server/src/index.ts — EditController registered
+
+[ ] 1.11 Smoke test Phase 1:
+         curl POST /edit  mode=instruction  (CosXL-Edit)
+         curl POST /edit  mode=inpaint      (SDXL inpaint)
+         curl POST /edit  mode=controlnet   (ControlNet depth, controlnet_type=1)
+
+         Example (PowerShell):
+           $body = '{"imageData":"<base64>","prompt":"make the sky stormy"}'
+           Invoke-RestMethod -Method POST -Uri http://localhost:5000/api/edit `
+             -ContentType application/json -Body $body
+
+## PHASE 2 TASKS
+
+[ ] 2.1  Download weights:
+         huggingface-cli download black-forest-labs/FLUX.1-schnell --local-dir server/diffusion-service/models/flux-schnell
+         huggingface-cli download InstantX/FLUX.1-dev-Controlnet-Depth --local-dir server/diffusion-service/models/flux-controlnet-depth
+
+[ ] 2.2  Update requirements.txt:
+         - bump diffusers>=0.32
+         - add bitsandbytes>=0.43  (required for nf4 quantisation on <20 GB VRAM cards)
+
+[ ] 2.3  app/services/flux_pipeline.py — CREATE:
+         load_flux_pipeline()
+           - auto-detects VRAM; uses nf4 (BitsAndBytesConfig) on <20 GB, fp16 on >=20 GB
+           - FluxImg2ImgPipeline; enable_vae_slicing()
+         load_flux_controlnet_pipeline()
+           - FluxControlNetModel + FluxControlNetPipeline; reuses transformer/VAE from load_flux_pipeline()
+         class FluxEditAdapter:
+           .edit(req) → dispatches to img2img or ControlNet-depth based on req.mode/controlnet_type
+
+[ ] 2.4  app/routes/edit.py — fill _run_flux stub:
+         from ..services.flux_pipeline import FluxEditAdapter
+         return FluxEditAdapter().edit(req)
+         (no other changes to the route file)
+
+[ ] 2.5  Smoke test Phase 2:
+         curl POST /edit  model=flux  prompt="dramatic storm"         (FLUX img2img)
+         curl POST /edit  model=flux  mode=controlnet controlnet_type=1  (FLUX depth)
+
+## UPGRADING CosXL → FLUX AS DEFAULT (when ready)
+
+[ ] U.1  app/models.py: change EditRequest.model default from ModelType.EDIT → ModelType.FLUX
+[ ] U.2  app/routes/edit.py: make FLUX the fallthrough for EDIT:
+         if req.model in (ModelType.FLUX, ModelType.EDIT): result = _run_flux(req)
+[ ] U.3  app/services/pipeline.py: remove load_cosxl_pipeline() to free VRAM
+         (Node controller and client require zero changes)
+
+## IP-ADAPTER USAGE NOTES
+
+- Pass reference_image_data (base64) in EditRequest to activate style/identity preservation
+- attach_ip_adapter(pipe) is idempotent — safe to call every request
+- ip_adapter_scale range: 0.4–0.7 = style retention + prompt following; 0.0 = disabled
+- Works with: CosXL (instruction), SDXL inpaint, ControlNet pipelines
+- Does NOT work with FLUX — use LoRA fine-tunes or textual inversion for FLUX style transfer
+
+## VRAM REFERENCE
+
+| Setup                          | VRAM  |
+|-------------------------------|-------|
+| SDXL base (existing)          | ~6 GB |
+| + ControlNet-Union-SDXL       | ~9 GB |
+| + IP-Adapter ViT-H            | ~11 GB|
+| Full Phase 1 peak              | 14-16 GB |
+| FLUX.1-schnell fp16           | ~24 GB| //This is probably way too haeavy
+| FLUX.1-schnell nf4            | ~12 GB|
+| FLUX + ControlNet-Depth nf4   | ~14 GB|
+
+On 8 GB cards: use pipe.enable_sequential_cpu_offload() in every loader
+
