@@ -15,4 +15,7 @@ export const HOST: string =
         : 'unknown';
 
         
+// Database driver: 'postgres' | 'memory'
+export const DB_DRIVER: string = process.env.DB_DRIVER ?? 'memory';
+
 // Environment variables for the database

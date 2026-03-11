@@ -5,6 +5,7 @@ import { Knex, knex } from 'knex';
 import { IDatabase, ISnapshot, IBranch, ILayerSnapshot, IVersionData, IAsset, IAssetData, IProject } from './dac';
 import { CanvasEvent } from '../common/CanvasEvent';
 import { MessageEvent } from '../common/MessageEvent';
+import type { ISyncTarget, ISyncLog, SyncConfig } from '../../../common/sync.interface';
 
 // Database row types (snake_case from PostgreSQL)
 interface BranchRow {
@@ -246,22 +247,35 @@ export class PostgresDatabase implements IDatabase {
     // ============================================
 
     async saveSnapshot(snapshot: ISnapshot): Promise<ISnapshot> {
-        // Use transaction to ensure atomic insert of snapshot and layers
+        // Use transaction to ensure atomic upsert of snapshot and layers
         return this.db.transaction(async (trx) => {
-            // Insert snapshot
-            const [snapshotRow] = await trx<SnapshotRow>('snapshots')
-                .insert({
-                    id: snapshot.id,
-                    project_id: snapshot.projectId,
-                    branch_id: snapshot.branchId,
-                    name: snapshot.name,
-                    description: snapshot.description || null,
-                    thumbnail: snapshot.thumbnail || null,
-                    created_by: snapshot.createdBy,
-                    created_at: String(snapshot.createdAt),
-                    parent_snapshot_id: snapshot.parentSnapshotId || null,
-                })
-                .returning('*');
+            // Upsert snapshot — INSERT … ON CONFLICT(id) DO UPDATE
+            const upsertResult = await trx.raw(
+                `INSERT INTO snapshots (id, project_id, branch_id, name, description, thumbnail, created_by, created_at, parent_snapshot_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (id) DO UPDATE SET
+                   name             = EXCLUDED.name,
+                   description      = EXCLUDED.description,
+                   thumbnail        = EXCLUDED.thumbnail,
+                   created_at       = EXCLUDED.created_at,
+                   parent_snapshot_id = EXCLUDED.parent_snapshot_id
+                 RETURNING *`,
+                [
+                    snapshot.id,
+                    snapshot.projectId,
+                    snapshot.branchId,
+                    snapshot.name,
+                    snapshot.description || null,
+                    snapshot.thumbnail || null,
+                    snapshot.createdBy,
+                    String(snapshot.createdAt),
+                    snapshot.parentSnapshotId || null,
+                ]
+            );
+            const snapshotRow: SnapshotRow = upsertResult.rows[0];
+
+            // Remove old layer snapshots before re-inserting
+            await trx('layer_snapshots').where({ snapshot_id: snapshot.id }).delete();
 
             // Insert layer snapshots
             if (snapshot.layers && snapshot.layers.length > 0) {
@@ -525,54 +539,231 @@ export class PostgresDatabase implements IDatabase {
     }
 
     // ============================================
-    // Asset Vault (in-memory stubs - implement with DB later)
+    // Asset Vault (PostgreSQL)
     // ============================================
 
-    private assets: Map<string, IAsset> = new Map();
+    private assetRowToInterface(row: any): IAsset {
+        return {
+            id: row.id,
+            projectId: row.project_id,
+            name: row.name,
+            description: row.description || undefined,
+            imageData: row.image_data,
+            thumbnailData: row.thumbnail_data || '',
+            tags: row.tags || [],
+            category: row.category || undefined,
+            width: row.width,
+            height: row.height,
+            createdBy: row.created_by,
+            createdAt: parseInt(row.created_at),
+            updatedAt: parseInt(row.updated_at),
+            sourceLayerId: row.source_layer_id || undefined,
+            sourceSnapshotId: row.source_snapshot_id || undefined,
+            usageCount: row.usage_count || 0,
+            lastUsedAt: row.last_used_at ? parseInt(row.last_used_at) : undefined,
+            isShared: row.is_shared ?? false,
+            sharedWith: row.shared_with || [],
+        };
+    }
 
     async saveAsset(asset: IAsset): Promise<IAsset> {
-        this.assets.set(asset.id, asset);
+        await this.db('assets').insert({
+            id: asset.id,
+            project_id: asset.projectId,
+            name: asset.name,
+            description: asset.description || null,
+            image_data: asset.imageData,
+            thumbnail_data: asset.thumbnailData || null,
+            tags: asset.tags || [],
+            category: asset.category || null,
+            width: asset.width,
+            height: asset.height,
+            created_by: asset.createdBy,
+            created_at: String(asset.createdAt),
+            updated_at: String(asset.updatedAt),
+            source_layer_id: asset.sourceLayerId || null,
+            source_snapshot_id: asset.sourceSnapshotId || null,
+            usage_count: asset.usageCount || 0,
+            last_used_at: asset.lastUsedAt ? String(asset.lastUsedAt) : null,
+            is_shared: asset.isShared ?? false,
+            shared_with: asset.sharedWith || [],
+        });
         return asset;
     }
 
     async getAssetsByProject(projectId: string): Promise<IAsset[]> {
-        return Array.from(this.assets.values()).filter(a => a.projectId === projectId);
+        const rows = await this.db('assets')
+            .where({ project_id: projectId })
+            .orderBy('created_at', 'desc');
+        return rows.map((r: any) => this.assetRowToInterface(r));
     }
 
     async getAssetById(assetId: string): Promise<IAsset | null> {
-        return this.assets.get(assetId) || null;
+        const row = await this.db('assets').where({ id: assetId }).first();
+        return row ? this.assetRowToInterface(row) : null;
     }
 
     async getAssetsByTags(projectId: string, tags: string[]): Promise<IAsset[]> {
-        return Array.from(this.assets.values()).filter(a => 
-            a.projectId === projectId && tags.some(tag => a.tags.includes(tag))
-        );
+        const rows = await this.db('assets')
+            .where({ project_id: projectId })
+            .whereRaw('tags && ?', [tags])  // PostgreSQL array overlap operator
+            .orderBy('created_at', 'desc');
+        return rows.map((r: any) => this.assetRowToInterface(r));
     }
 
     async updateAsset(assetId: string, updates: Partial<IAsset>): Promise<IAsset | null> {
-        const asset = this.assets.get(assetId);
-        if (!asset) return null;
-        const updated = { ...asset, ...updates, updatedAt: Date.now() };
-        this.assets.set(assetId, updated);
-        return updated;
+        const updateData: any = { updated_at: String(Date.now()) };
+        if (updates.name !== undefined) updateData.name = updates.name;
+        if (updates.description !== undefined) updateData.description = updates.description;
+        if (updates.imageData !== undefined) updateData.image_data = updates.imageData;
+        if (updates.thumbnailData !== undefined) updateData.thumbnail_data = updates.thumbnailData;
+        if (updates.tags !== undefined) updateData.tags = updates.tags;
+        if (updates.category !== undefined) updateData.category = updates.category;
+        if (updates.width !== undefined) updateData.width = updates.width;
+        if (updates.height !== undefined) updateData.height = updates.height;
+        if (updates.isShared !== undefined) updateData.is_shared = updates.isShared;
+        if (updates.sharedWith !== undefined) updateData.shared_with = updates.sharedWith;
+
+        const [row] = await this.db('assets')
+            .where({ id: assetId })
+            .update(updateData)
+            .returning('*');
+        return row ? this.assetRowToInterface(row) : null;
     }
 
     async deleteAsset(assetId: string): Promise<void> {
-        this.assets.delete(assetId);
+        await this.db('assets').where({ id: assetId }).delete();
     }
 
     async incrementAssetUsage(assetId: string): Promise<void> {
-        const asset = this.assets.get(assetId);
-        if (asset) {
-            asset.usageCount = (asset.usageCount || 0) + 1;
-            asset.lastUsedAt = Date.now();
-            this.assets.set(assetId, asset);
-        }
+        await this.db('assets')
+            .where({ id: assetId })
+            .update({
+                usage_count: this.db.raw('usage_count + 1'),
+                last_used_at: String(Date.now()),
+            });
     }
 
     async getAssetData(projectId: string): Promise<IAssetData> {
         return {
             assets: await this.getAssetsByProject(projectId),
         };
+    }
+
+    // ============================================
+    // Sync Targets
+    // ============================================
+
+    private syncTargetRowToInterface(row: any): ISyncTarget {
+        return {
+            id: row.id,
+            projectId: row.project_id,
+            type: row.type,
+            name: row.name,
+            config: typeof row.config === 'string' ? JSON.parse(row.config) : row.config,
+            enabled: row.enabled ?? true,
+            lastSyncedAt: row.last_synced_at ? parseInt(row.last_synced_at) : undefined,
+            lastSyncSnapshotId: row.last_sync_snapshot_id || undefined,
+            lastSyncStatus: row.last_sync_status || undefined,
+            lastSyncError: row.last_sync_error || undefined,
+            createdBy: row.created_by,
+            createdAt: parseInt(row.created_at),
+            updatedAt: parseInt(row.updated_at),
+        };
+    }
+
+    async saveSyncTarget(target: ISyncTarget): Promise<ISyncTarget> {
+        await this.db('sync_targets').insert({
+            id: target.id,
+            project_id: target.projectId,
+            type: target.type,
+            name: target.name,
+            config: JSON.stringify(target.config),
+            enabled: target.enabled ?? true,
+            last_synced_at: target.lastSyncedAt ? String(target.lastSyncedAt) : null,
+            last_sync_snapshot_id: target.lastSyncSnapshotId || null,
+            last_sync_status: target.lastSyncStatus || null,
+            last_sync_error: target.lastSyncError || null,
+            created_by: target.createdBy,
+            created_at: String(target.createdAt),
+            updated_at: String(target.updatedAt),
+        });
+        return target;
+    }
+
+    async getSyncTargetsByProject(projectId: string): Promise<ISyncTarget[]> {
+        const rows = await this.db('sync_targets')
+            .where({ project_id: projectId })
+            .orderBy('created_at', 'desc');
+        return rows.map((r: any) => this.syncTargetRowToInterface(r));
+    }
+
+    async getSyncTargetById(targetId: string): Promise<ISyncTarget | null> {
+        const row = await this.db('sync_targets').where({ id: targetId }).first();
+        return row ? this.syncTargetRowToInterface(row) : null;
+    }
+
+    async updateSyncTarget(targetId: string, updates: Partial<ISyncTarget>): Promise<ISyncTarget | null> {
+        const updateData: any = { updated_at: String(Date.now()) };
+        if (updates.name !== undefined) updateData.name = updates.name;
+        if (updates.config !== undefined) updateData.config = JSON.stringify(updates.config);
+        if (updates.enabled !== undefined) updateData.enabled = updates.enabled;
+        if (updates.lastSyncedAt !== undefined) updateData.last_synced_at = String(updates.lastSyncedAt);
+        if (updates.lastSyncSnapshotId !== undefined) updateData.last_sync_snapshot_id = updates.lastSyncSnapshotId;
+        if (updates.lastSyncStatus !== undefined) updateData.last_sync_status = updates.lastSyncStatus;
+        if (updates.lastSyncError !== undefined) updateData.last_sync_error = updates.lastSyncError;
+
+        const [row] = await this.db('sync_targets')
+            .where({ id: targetId })
+            .update(updateData)
+            .returning('*');
+        return row ? this.syncTargetRowToInterface(row) : null;
+    }
+
+    async deleteSyncTarget(targetId: string): Promise<void> {
+        await this.db('sync_targets').where({ id: targetId }).delete();
+    }
+
+    async getEnabledSyncTargets(projectId: string): Promise<ISyncTarget[]> {
+        const rows = await this.db('sync_targets')
+            .where({ project_id: projectId, enabled: true });
+        return rows.map((r: any) => this.syncTargetRowToInterface(r));
+    }
+
+    // ============================================
+    // Sync Log
+    // ============================================
+
+    async saveSyncLog(log: ISyncLog): Promise<ISyncLog> {
+        await this.db('sync_log').insert({
+            id: log.id,
+            sync_target_id: log.syncTargetId,
+            snapshot_id: log.snapshotId,
+            status: log.status,
+            message: log.message || null,
+            details: log.details ? JSON.stringify(log.details) : null,
+            started_at: String(log.startedAt),
+            completed_at: log.completedAt ? String(log.completedAt) : null,
+            duration_ms: log.durationMs || null,
+        });
+        return log;
+    }
+
+    async getSyncLogsByTarget(targetId: string, limit: number = 20): Promise<ISyncLog[]> {
+        const rows = await this.db('sync_log')
+            .where({ sync_target_id: targetId })
+            .orderBy('started_at', 'desc')
+            .limit(limit);
+        return rows.map((row: any) => ({
+            id: row.id,
+            syncTargetId: row.sync_target_id,
+            snapshotId: row.snapshot_id,
+            status: row.status,
+            message: row.message || undefined,
+            details: typeof row.details === 'string' ? JSON.parse(row.details) : (row.details || undefined),
+            startedAt: parseInt(row.started_at),
+            completedAt: row.completed_at ? parseInt(row.completed_at) : undefined,
+            durationMs: row.duration_ms || undefined,
+        }));
     }
 }

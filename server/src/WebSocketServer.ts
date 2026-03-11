@@ -1,9 +1,11 @@
-import WebSocket, { WebSocketServer as WebSocketServerType } from 'ws';
+﻿import WebSocket, { WebSocketServer as WebSocketServerType } from 'ws';
 import {Server} from 'http';
 import {CanvasEvent} from "./common/CanvasEvent"; 
 import {MessageEvent} from "./common/MessageEvent";
 import DAC, { ISnapshot, IBranch, ILayerSnapshot } from './db/dac';
 import { randomUUID } from 'crypto';
+import { syncAllEnabled } from './services/sync.service';
+import type { SyncStatusEvent } from '../../common/sync.interface';
 
 const uuidv4 = () => randomUUID();
 
@@ -254,6 +256,26 @@ export class WebSocketServer {
             'layers:', savedSnapshot.layers.length,
             'thumbnail:', savedSnapshot.thumbnail?.length > 0 ? 'present' : 'missing',
             existingCurrentSnapshot ? '(updated)' : '(new)');
+
+        // Auto-sync: fire-and-forget to all enabled sync targets
+        this.triggerAutoSync(savedSnapshot.id, roomId);
+    }
+
+    /**
+     * Fire-and-forget auto-sync after snapshot creation.
+     * Broadcasts sync:status events to all clients in the room.
+     */
+    private triggerAutoSync(snapshotId: string, roomId: string) {
+        const emitter = (event: SyncStatusEvent) => {
+            this.broadcastToRoomIncludingSender(roomId, JSON.stringify({
+                type: 'sync:status',
+                payload: event,
+            }));
+        };
+
+        syncAllEnabled(snapshotId, emitter).catch((err) => {
+            console.error('[AutoSync] Failed:', err.message);
+        });
     }
 
     private async handleSnapshotRestore(
@@ -419,7 +441,7 @@ export class WebSocketServer {
             id: uuidv4(),
             projectId: roomId,
             branchId: payload.targetBranchId,
-            name: `Merge: ${sourceBranch.name} → ${targetBranch.name}`,
+            name: `Merge: ${sourceBranch.name} â†’ ${targetBranch.name}`,
             description: `Merged changes from branch "${sourceBranch.name}"`,
             layers: sourceHead.layers,
             thumbnail: sourceHead.thumbnail,
@@ -439,7 +461,7 @@ export class WebSocketServer {
             },
         }));
 
-        console.log('Branches merged:', sourceBranch.name, '→', targetBranch.name);
+        console.log('Branches merged:', sourceBranch.name, 'â†’', targetBranch.name);
     }
 
     // ============================================

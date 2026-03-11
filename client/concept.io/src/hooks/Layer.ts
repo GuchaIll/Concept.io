@@ -107,8 +107,8 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     if (canvas && !wsService)
     {
       const userId = generateUserId();
-      // Use consistent project ID instead of URL path
-      const roomId = 'project-demo-1'; // TODO: Get from context/props
+      // Use projectId from session context (passed via CanvasProvider)
+      const roomId = 'project-demo-1'; // TODO: Wire from SessionContext via props
       const wsURL = 'http://localhost:5000';
       const ws = new WebSocketService(wsURL,userId, roomId);
       ws.setCanvas(canvas);
@@ -145,6 +145,92 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     setLayers([...layers, newLayer]);
     setActiveLayer(newLayer);
   };
+
+  /**
+   * Create a new asset layer from image data and add the image to the canvas.
+   * If width/height are provided they are used as the desired canvas footprint
+   * (the image is scaled to fit). Alpha transparency is preserved.
+   * Returns the created Layer, or null if something went wrong.
+   */
+  const addAssetLayer = useCallback(async (
+    assetId: string,
+    name: string,
+    imageData: string,
+    width: number,
+    height: number,
+    left?: number,
+    top?: number,
+  ): Promise<Layer | null> => {
+    if (!canvas) {
+      console.warn('[addAssetLayer] No canvas');
+      return null;
+    }
+
+    const layerId = `asset-${assetId}-${uuidv4().slice(0, 6)}`;
+    const newLayer: Layer = {
+      id: layerId,
+      name,
+      type: 'asset',
+      objects: [],
+      visible: true,
+      opacity: 1,
+      zIndex: layersRef.current.length,
+      locked: false,
+      blendMode: 'normal',
+    };
+
+    setLayers(prev => [...prev, newLayer]);
+    setActiveLayer(newLayer);
+
+    try {
+      // Load image — crossOrigin 'anonymous' is fine for data-URLs and
+      // ensures Fabric doesn't taint the canvas when the src is a blob/http URL.
+      const fabricImg = await fabric.FabricImage.fromURL(imageData, { crossOrigin: 'anonymous' });
+
+      // Scale the image so its visual footprint matches the requested width/height.
+      // This lets generation results fit the selection bounds the user drew.
+      const naturalW = fabricImg.width ?? 1;
+      const naturalH = fabricImg.height ?? 1;
+      const scaleX = width  > 0 ? width  / naturalW : 1;
+      const scaleY = height > 0 ? height / naturalH : 1;
+
+      fabricImg.set({
+        left: left ?? 100,
+        top: top ?? 100,
+        scaleX,
+        scaleY,
+        // Full interactivity
+        selectable: true,
+        evented: true,
+        hasControls: true,
+        hasBorders: true,
+        lockRotation: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        lockMovementX: false,
+        lockMovementY: false,
+        // Uniform scaling off so user can freely stretch
+        lockUniScaling: false,
+      });
+
+      // Tag the object so it belongs to this layer
+      (fabricImg as any).layerId = layerId;
+
+      canvas.add(fabricImg);
+      canvas.setActiveObject(fabricImg);
+      canvas.requestRenderAll();
+
+      console.log(
+        '[addAssetLayer] Added', name, 'to canvas at', left, top,
+        '— natural', naturalW, 'x', naturalH,
+        '— scaled', (naturalW * scaleX).toFixed(0), 'x', (naturalH * scaleY).toFixed(0),
+      );
+      return newLayer;
+    } catch (err) {
+      console.error('[addAssetLayer] Failed to load image:', err);
+      return null;
+    }
+  }, [canvas]);
   
 
   const removeLayer = (layerId: string) => {
@@ -744,6 +830,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     activeLayer,
     setActiveLayer,
     addLayer,
+    addAssetLayer,
     removeLayer,
     updateLayerType,
     updateLayerVisibility,

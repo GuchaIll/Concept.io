@@ -5,6 +5,7 @@
 
 import {CanvasEvent} from "../common/CanvasEvent";
 import {MessageEvent} from "../common/MessageEvent";
+import type { ISyncTarget, ISyncLog } from '../../../common/sync.interface';
 
 // Version Control Types
 export interface ISnapshot {
@@ -148,6 +149,18 @@ export interface IDatabase {
     deleteAsset(assetId: string): Promise<void>;
     incrementAssetUsage(assetId: string): Promise<void>;
     getAssetData(projectId: string): Promise<IAssetData>;
+    
+    // Sync Targets
+    saveSyncTarget(target: ISyncTarget): Promise<ISyncTarget>;
+    getSyncTargetsByProject(projectId: string): Promise<ISyncTarget[]>;
+    getSyncTargetById(targetId: string): Promise<ISyncTarget | null>;
+    updateSyncTarget(targetId: string, updates: Partial<ISyncTarget>): Promise<ISyncTarget | null>;
+    deleteSyncTarget(targetId: string): Promise<void>;
+    getEnabledSyncTargets(projectId: string): Promise<ISyncTarget[]>;
+    
+    // Sync Log
+    saveSyncLog(log: ISyncLog): Promise<ISyncLog>;
+    getSyncLogsByTarget(targetId: string, limit?: number): Promise<ISyncLog[]>;
 }
 
 class DAC {

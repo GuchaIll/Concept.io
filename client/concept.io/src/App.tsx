@@ -14,32 +14,31 @@ import LogoutButton from './pages/logout'
 import Profile from './pages/profile'
 import TimelinePage from './pages/timeline'
 import { VersionProvider } from './contexts/VersionContext'
-
-// Configuration - in production these would come from env/user context
-const PROJECT_ID = 'project-demo-1';
-const USER_ID = 'user-demo-1';
+import { SessionProvider } from './contexts/SessionContext'
 
 function App() {
   return (
     <Router>
-      <VersionProvider projectId={PROJECT_ID} userId={USER_ID}>
-        <div className="h-screen overflow-hidden relative "> 
-          <Navbar />
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/auth" element={<AuthPage />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/canvas" element={<Canvas />} />
-            <Route path="/timeline" element={<TimelinePage />} />
-            <Route path="/user" element={<User />} />
-            <Route path="/team" element={<TeamPage />} />
-            <Route path="/projects" element={<Projects />} />
-            <Route path="/login" element={<LoginButton />} />
-            <Route path="/logout" element={<LogoutButton />} />
-            <Route path="/profile" element={<Profile />} />
-          </Routes>
-        </div>
-      </VersionProvider>
+      <SessionProvider>
+        <VersionProvider>
+          <div className="h-screen overflow-hidden relative "> 
+            <Navbar />
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/auth" element={<AuthPage />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/canvas" element={<Canvas />} />
+              <Route path="/timeline" element={<TimelinePage />} />
+              <Route path="/user" element={<User />} />
+              <Route path="/team" element={<TeamPage />} />
+              <Route path="/projects" element={<Projects />} />
+              <Route path="/login" element={<LoginButton />} />
+              <Route path="/logout" element={<LogoutButton />} />
+              <Route path="/profile" element={<Profile />} />
+            </Routes>
+          </div>
+        </VersionProvider>
+      </SessionProvider>
     </Router>
   )
 }
