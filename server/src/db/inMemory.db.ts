@@ -2,6 +2,7 @@
 import { IDatabase, ISnapshot, IBranch, ILayerSnapshot, IVersionData, IAsset, IAssetData, IProject } from './dac';
 import {CanvasEvent} from "../common/CanvasEvent";
 import {MessageEvent} from "../common/MessageEvent";
+import type { ISyncTarget, ISyncLog } from '../../../common/sync.interface';
 
 export class InMemoryDatabase implements IDatabase {
     
@@ -18,6 +19,10 @@ export class InMemoryDatabase implements IDatabase {
     
     // Project storage
     private projects: Map<string, IProject> = new Map();
+    
+    // Sync target storage
+    private syncTargets: Map<string, ISyncTarget> = new Map();
+    private syncLogs: Map<string, ISyncLog> = new Map();
     
     async connect() : Promise<void> {
         console.log("InMemoryDatabase connected");
@@ -321,5 +326,61 @@ export class InMemoryDatabase implements IDatabase {
     async getAssetData(projectId: string): Promise<IAssetData> {
         const assets = await this.getAssetsByProject(projectId);
         return { assets };
+    }
+    
+    // ============================================
+    // Sync Targets
+    // ============================================
+    
+    async saveSyncTarget(target: ISyncTarget): Promise<ISyncTarget> {
+        this.syncTargets.set(target.id, target);
+        return target;
+    }
+    
+    async getSyncTargetsByProject(projectId: string): Promise<ISyncTarget[]> {
+        return Array.from(this.syncTargets.values())
+            .filter(t => t.projectId === projectId)
+            .sort((a, b) => b.createdAt - a.createdAt);
+    }
+    
+    async getSyncTargetById(targetId: string): Promise<ISyncTarget | null> {
+        return this.syncTargets.get(targetId) || null;
+    }
+    
+    async updateSyncTarget(targetId: string, updates: Partial<ISyncTarget>): Promise<ISyncTarget | null> {
+        const target = this.syncTargets.get(targetId);
+        if (!target) return null;
+        const updated = { ...target, ...updates, updatedAt: Date.now() };
+        this.syncTargets.set(targetId, updated);
+        return updated;
+    }
+    
+    async deleteSyncTarget(targetId: string): Promise<void> {
+        this.syncTargets.delete(targetId);
+        // Delete associated logs
+        for (const [logId, log] of this.syncLogs) {
+            if (log.syncTargetId === targetId) this.syncLogs.delete(logId);
+        }
+    }
+    
+    async getEnabledSyncTargets(projectId: string): Promise<ISyncTarget[]> {
+        return Array.from(this.syncTargets.values())
+            .filter(t => t.projectId === projectId && t.enabled);
+    }
+    
+    // ============================================
+    // Sync Log
+    // ============================================
+    
+    async saveSyncLog(log: ISyncLog): Promise<ISyncLog> {
+        this.syncLogs.set(log.id, log);
+        return log;
+    }
+    
+    async getSyncLogsByTarget(targetId: string, limit: number = 20): Promise<ISyncLog[]> {
+        return Array.from(this.syncLogs.values())
+            .filter(l => l.syncTargetId === targetId)
+            .sort((a, b) => b.startedAt - a.startedAt)
+            .slice(0, limit);
     }
 }

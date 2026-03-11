@@ -9,6 +9,8 @@ import type {
   BranchTree 
 } from '../types/version.interface';
 import type { Layer } from '../hooks/Layer';
+import { useSession } from './SessionContext';
+import type { SyncStatus, SyncStatusEvent } from '../../../common/sync.interface';
 
 // API base URL for REST endpoints
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -45,6 +47,10 @@ interface VersionContextType {
   selectSnapshot: (snapshotId: string | null) => void;
   clearPendingRestore: () => void;
   
+  // Sync status
+  syncStatus: SyncStatus;
+  lastSyncEvent: SyncStatusEvent | null;
+
   // Canvas connection
   setCanvas: (canvas: fabric.Canvas | null) => void;
   setLayers: (layers: Layer[]) => void;
@@ -62,11 +68,10 @@ const VersionContext = createContext<VersionContextType | null>(null);
 
 interface VersionProviderProps {
   children: ReactNode;
-  projectId: string;
-  userId: string;
 }
 
-export const VersionProvider = ({ children, projectId, userId }: VersionProviderProps) => {
+export const VersionProvider = ({ children }: VersionProviderProps) => {
+  const { projectId, userId } = useSession();
   const [state, setState] = useState<VersionTimelineState>({
     branches: [],
     snapshots: [],
@@ -79,6 +84,10 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
 
   // Track snapshot to restore when canvas becomes available
   const [pendingRestoreSnapshotId, setPendingRestoreSnapshotId] = useState<string | null>(null);
+
+  // Sync status from WebSocket events
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [lastSyncEvent, setLastSyncEvent] = useState<SyncStatusEvent | null>(null);
 
   const canvasRef = useRef<fabric.Canvas | null>(null);
   const layersRef = useRef<Layer[]>([]);
@@ -209,7 +218,11 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
       
       switch (data.type) {
         case 'version:sync': {
-          const mergedSnapshots = mergeSnapshots(data.payload.snapshots || [], state.snapshots);
+          // Merge incoming snapshots with local ones, preferring server data
+          const incoming: ISnapshot[] = data.payload.snapshots || [];
+          const incomingIds = new Set(incoming.map((s: ISnapshot) => s.id));
+          const localOnly = state.snapshots.filter(s => !incomingIds.has(s.id));
+          const mergedSnapshots = [...incoming, ...localOnly];
           console.log('Received version sync:', {
             branchesCount: data.payload.branches?.length,
             snapshotsCount: mergedSnapshots?.length,
@@ -294,6 +307,18 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
             isLoading: false,
           }));
           break;
+
+        case 'sync:status': {
+          const syncEvent = data.payload as SyncStatusEvent;
+          console.log('[Sync]', syncEvent.status, syncEvent.message ?? '');
+          setSyncStatus(syncEvent.status);
+          setLastSyncEvent(syncEvent);
+          // Auto-clear to idle after 5s on terminal states
+          if (syncEvent.status === 'success' || syncEvent.status === 'failed') {
+            setTimeout(() => setSyncStatus('idle'), 5000);
+          }
+          break;
+        }
 
         default:
           break;
@@ -774,6 +799,8 @@ export const VersionProvider = ({ children, projectId, userId }: VersionProvider
     setCanvas,
     setLayers,
     setSocket,
+    syncStatus,
+    lastSyncEvent,
     getBranchTrees,
     getCurrentBranch,
     getCurrentSnapshot,

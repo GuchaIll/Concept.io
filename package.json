@@ -22,11 +22,17 @@
     "clean": "npm run clean:client && npm run clean:server",
     "clean:client": "cd client/concept.io && npm run clean",
     "clean:server": "cd server && npm run clean",
-    "start:windows": "powershell -ExecutionPolicy Bypass -File start-dev.ps1"
+    "start:windows": "powershell -ExecutionPolicy Bypass -File start-dev.ps1",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "cd server && npx knex migrate:latest --knexfile knexfile.ts",
+    "db:rollback": "cd server && npx knex migrate:rollback --knexfile knexfile.ts"
   },
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "axios": "^1.11.0",
-    "concurrently": "^8.2.1"
+    "concurrently": "^8.2.1",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "prettier": "3.6.2"

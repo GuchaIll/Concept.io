@@ -2,6 +2,7 @@
 // Note: Version control methods are stubbed - use PostgresDatabase for full support
 
 import { IDatabase, ISnapshot, IBranch, IVersionData, IAsset, IAssetData, IProject, ILayerSnapshot } from './dac';
+import type { ISyncTarget, ISyncLog } from '../../../common/sync.interface';
 import {CanvasEvent} from "../common/CanvasEvent";
 import {MessageEvent} from "../common/MessageEvent";
 
@@ -164,5 +165,41 @@ export class MongoDBDatabase implements IDatabase {
             for (const snap of snaps) this.snapshots.delete(snap.id);
             this.branches.delete(branch.id);
         }
+    }
+
+    // Sync Target stubs (use PostgresDatabase for full support)
+    private syncTargets: Map<string, ISyncTarget> = new Map();
+    private syncLogs: ISyncLog[] = [];
+
+    async saveSyncTarget(target: ISyncTarget): Promise<ISyncTarget> {
+        this.syncTargets.set(target.id, target);
+        return target;
+    }
+    async getSyncTargetsByProject(projectId: string): Promise<ISyncTarget[]> {
+        return Array.from(this.syncTargets.values()).filter(t => t.projectId === projectId);
+    }
+    async getEnabledSyncTargets(projectId: string): Promise<ISyncTarget[]> {
+        return Array.from(this.syncTargets.values()).filter(t => t.projectId === projectId && t.enabled);
+    }
+    async getSyncTargetById(targetId: string): Promise<ISyncTarget | null> {
+        return this.syncTargets.get(targetId) || null;
+    }
+    async updateSyncTarget(targetId: string, updates: Partial<ISyncTarget>): Promise<ISyncTarget | null> {
+        const target = this.syncTargets.get(targetId);
+        if (!target) return null;
+        const updated = { ...target, ...updates, updatedAt: Date.now() };
+        this.syncTargets.set(targetId, updated);
+        return updated;
+    }
+    async deleteSyncTarget(targetId: string): Promise<void> {
+        this.syncTargets.delete(targetId);
+    }
+    async saveSyncLog(log: ISyncLog): Promise<ISyncLog> {
+        this.syncLogs.push(log);
+        return log;
+    }
+    async getSyncLogsByTarget(targetId: string, limit?: number): Promise<ISyncLog[]> {
+        const logs = this.syncLogs.filter(l => l.syncTargetId === targetId);
+        return limit ? logs.slice(-limit) : logs;
     }
 }

@@ -23,7 +23,7 @@
 
 import path from 'path';
 import App from './app';
-import {PORT, HOST, STAGE, ENV} from './env'
+import {PORT, HOST, STAGE, ENV, DB_DRIVER} from './env'
 import {InMemoryDatabase} from './db/inMemory.db';
 import {MongoDBDatabase} from './db/mongo.db';
 import {PostgresDatabase} from './db/postgres.db';
@@ -32,6 +32,7 @@ import {GenerationController} from './controllers/generation.controller';
 import {CutoutController} from './controllers/cutout.controller';
 import {EditController} from './controllers/edit.controller';
 import {ProjectController} from './controllers/project.controller';
+import {SyncController} from './controllers/sync.controller';
 import * as dotenv from 'dotenv';
 
 // Load environment variables
@@ -46,15 +47,15 @@ const app = new App([
     new GenerationController(),
     new CutoutController(),
     new EditController(),
+    new SyncController(),
     ],
     {clientDir : path.join(__dirname, '../client'),
         initOnStart: true,
         host: HOST,
         port: PORT,
         url: `${HOST}${ENV === 'LOCAL' ? ':' + PORT.toString() : ''}`,
-        // Use InMemoryDatabase for testing without PostgreSQL
-        db: new InMemoryDatabase()
-        // For production with Postgres: new PostgresDatabase()
+        // DB_DRIVER=postgres for persistent storage, 'memory' for dev/testing
+        db: DB_DRIVER === 'postgres' ? new PostgresDatabase() : new InMemoryDatabase(),
     });
 
 app.listen();
