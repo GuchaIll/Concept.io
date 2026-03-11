@@ -21,6 +21,8 @@ interface ToolRailProps {
   onSelectionModeChange?: (mode: SelectionMode) => void;
   magicThreshold?: number;
   onMagicThresholdChange?: (threshold: number) => void;
+  // Asset vault
+  onAssetVaultClick?: () => void;
 }
 
 interface ToolRailItem {
@@ -37,7 +39,7 @@ const railTools: ToolRailItem[] = [
   { id: 'eraser', icon: 'auto_fix_normal', label: 'Eraser' },
   { id: 'generate', icon: 'auto_fix_high', label: 'Diffusion Cutout' },
   { id: 'Eyedropper', icon: 'colorize', label: 'Eyedropper' },
-  { id: 'asset', icon: 'layers', label: 'Layers' },
+  { id: 'asset', icon: 'folder_open', label: 'Asset Vault' },
 ];
 
 export const ToolRail = ({
@@ -52,6 +54,7 @@ export const ToolRail = ({
   onSelectionModeChange,
   magicThreshold = 30,
   onMagicThresholdChange,
+  onAssetVaultClick,
 }: ToolRailProps) => {
   const { state, dispatch } = useTool();
   const [showBrushEditor, setShowBrushEditor] = useState(false);
@@ -59,6 +62,15 @@ export const ToolRail = ({
   const [showSelectPanel, setShowSelectPanel] = useState(false);
 
   const handleToolClick = (tool: ToolRailItem) => {
+    // Handle Asset Vault tool - call parent handler to toggle panel
+    if (tool.id === 'asset') {
+      onAssetVaultClick?.();
+      setShowBrushEditor(false);
+      setShowColorPicker(false);
+      setShowSelectPanel(false);
+      return;
+    }
+
     const toolPayload: Tool = {
       id: tool.id,
       label: tool.label,
@@ -150,6 +162,7 @@ export const ToolRail = ({
           onClose={() => setShowSelectPanel(false)}
         />
       )}
+
 
       {/* Size & Opacity Sliders */}
       <div className="glass-panel px-3 py-4 rounded-2xl flex flex-col items-center gap-3 thin-border">
