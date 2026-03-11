@@ -53,9 +53,4 @@ export interface ILayerSnapshot {
   opacity: number;
   blendMode: string;
   zIndex: number;
-  locked?: boolean;
-  
-  // Delta snapshot support
-  snapshotType?: 'full' | 'reference';  // 'full' = contains all data, 'reference' = pointer to another snapshot
-  referenceSnapshotId?: string;          // When snapshotType='reference', points to snapshot with full data
 }

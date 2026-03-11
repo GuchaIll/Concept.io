@@ -6,11 +6,6 @@ import {CanvasEvent} from "../common/CanvasEvent";
 import {MessageEvent} from "../common/MessageEvent";
 
 export class MongoDBDatabase implements IDatabase {
-    private client: MongoClient | null = null;
-    private db: Db | null = null;
-    private canvasEvents: Collection<CanvasEvent> | null = null;
-    private chatHistory: Collection<MessageEvent> | null = null;
-    private teams: Collection<{ teamID: string, members: string[] }> | null = null;
 
     private history: CanvasEvent[] = [];
     private branches: Map<string, IBranch> = new Map();
@@ -20,20 +15,11 @@ export class MongoDBDatabase implements IDatabase {
         console.log("MongoDBDatabase connected");
     }
 
-    async disconnect(): Promise<void> {
-        if (this.client) {
-            await this.client.close();
-            this.client = null;
-            this.db = null;
-            this.canvasEvents = null;
-            this.chatHistory = null;
-            this.teams = null;
-            console.log("MongoDBDatabase disconnected");
-        }
+    async disconnect() : Promise<void> {
+        console.log("MongoDBDatabase disconnected");
     }
 
-    async inherits(): Promise<void> {
-        // No-op for MongoDB implementation
+    async inherits() : Promise<void> {
         console.log("MongoDBDatabase inherits");
     }
 
@@ -44,55 +30,6 @@ export class MongoDBDatabase implements IDatabase {
     async getAllCanvasEventsFromHistory() : Promise<CanvasEvent[]> {
         return this.history;
     }
-
-    async removeCanvasEventFromHistory(e: CanvasEvent): Promise<void> {
-        if (!this.canvasEvents) throw new Error('Not connected');
-        // Assuming CanvasEvent has a unique 'id' property
-        await this.canvasEvents.deleteOne({ id: (e as any).id });
-    }
-
-    async saveMessageToChatHistory(e: MessageEvent): Promise<void> {
-        if (!this.chatHistory) throw new Error('Not connected');
-        await this.chatHistory.insertOne(e);
-    }
-
-    async getAllMessagesFromChatHistory(): Promise<MessageEvent[]> {
-        if (!this.chatHistory) throw new Error('Not connected');
-        return await this.chatHistory.find().toArray();
-    }
-
-    async AddMemberToTeam(teamID: string, userID: string): Promise<void> {
-        if (!this.teams) throw new Error('Not connected');
-        await this.teams.updateOne(
-            { teamID },
-            { $addToSet: { members: userID } },
-            { upsert: true }
-        );
-    }
-
-    async RemoveMemberFromTeam(teamID: string, userID: string): Promise<void> {
-        if (!this.teams) throw new Error('Not connected');
-        await this.teams.updateOne(
-            { teamID },
-            { $pull: { members: userID } }
-        );
-    }
-
-    async saveTeamToTeamList(teamID: string): Promise<void> {
-        if (!this.teams) throw new Error('Not connected');
-        await this.teams.updateOne(
-            { teamID },
-            { $setOnInsert: { members: [] } },
-            { upsert: true }
-        );
-    }
-
-    async getAllTeamsFromTeamList(): Promise<string[]> {
-        if (!this.teams) throw new Error('Not connected');
-        const teams = await this.teams.find().toArray();
-        return teams.map(t => t.teamID);
-    }
-}
     
     async removeCanvasEventFromHistory(e : CanvasEvent) : Promise<void> {
         const index = this.history.indexOf(e);

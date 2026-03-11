@@ -27,26 +27,8 @@ const formatRelativeTime = (timestamp: number): string => {
   return `${days}d ago`;
 };
 
-// Node data types
-interface SnapshotNodeData {
-  [key: string]: unknown;
-  snapshot: ISnapshot;
-  branch: IBranch;
-  isActive: boolean;
-  isHead: boolean;
-  onClick?: (id: string) => void;
-  onRestore?: (id: string) => void;
-}
-
-interface BranchNodeData {
-  [key: string]: unknown;
-  snapshot: ISnapshot;
-  branch: IBranch;
-  onClick?: (id: string) => void;
-}
-
 // Custom Snapshot Node
-const SnapshotNode = ({ data, selected }: NodeProps<Node<SnapshotNodeData>>) => {
+const SnapshotNode = ({ data, selected }: NodeProps) => {
   const { snapshot, branch, isActive, isHead, onClick, onRestore } = data;
   
   return (
@@ -112,14 +94,8 @@ const SnapshotNode = ({ data, selected }: NodeProps<Node<SnapshotNodeData>>) => 
   );
 };
 
-// Ghost Node data type
-interface GhostNodeData {
-  [key: string]: unknown;
-  onClick?: () => void;
-}
-
 // Ghost Node for new commits
-const GhostNode = ({ data }: NodeProps<Node<GhostNodeData>>) => (
+const GhostNode = ({ data }: NodeProps) => (
   <div className="group">
     <Handle type="target" position={Position.Left} className="!bg-primary/40 !w-2 !h-2" />
     <div onClick={data.onClick}
@@ -131,26 +107,26 @@ const GhostNode = ({ data }: NodeProps<Node<GhostNodeData>>) => (
 );
 
 // Branch Node (smaller)
-const BranchNode = ({ data }: NodeProps<Node<BranchNodeData>>) => {
+const BranchNode = ({ data }: NodeProps) => {
   const { snapshot, branch, onClick } = data;
   return (
     <div className="flex items-center gap-2 group">
-      <Handle type="target" position={Position.Top} className="!w-2 !h-2" style={{ background: branch?.color || '#8b5cf6' }} />
+      <Handle type="target" position={Position.Top} className="!w-2 !h-2" style={{ background: branch?.color }} />
       <div onClick={() => onClick?.(snapshot.id)}
         className="w-14 h-14 rounded-lg border-2 p-0.5 bg-[#101622] shadow-lg cursor-pointer hover:scale-105 transition-transform"
-        style={{ borderColor: `${branch?.color || '#8b5cf6'}60` }}>
+        style={{ borderColor: `${branch?.color}60` }}>
         {snapshot.thumbnail ? (
           <img src={snapshot.thumbnail} alt={snapshot.name} className="w-full h-full object-cover rounded-md" />
         ) : (
-          <div className="w-full h-full rounded-md" style={{ background: `linear-gradient(135deg, ${branch?.color || '#8b5cf6'}40 0%, transparent 100%)` }} />
+          <div className="w-full h-full rounded-md" style={{ background: `linear-gradient(135deg, ${branch?.color}40 0%, transparent 100%)` }} />
         )}
       </div>
       <div className="max-w-[100px]">
-        <span className="text-[9px] font-bold uppercase block" style={{ color: branch?.color || '#8b5cf6' }}>{branch?.name || 'Branch'}</span>
+        <span className="text-[9px] font-bold uppercase block" style={{ color: branch?.color }}>{branch?.name}</span>
         <p className="text-[10px] text-white/80 truncate">{snapshot.name}</p>
-        <p className="text-[8px] text-white/40">{snapshot.layers?.length || 0} layers</p>
+        <p className="text-[8px] text-white/40">{snapshot.layers.length} layers</p>
       </div>
-      <Handle type="source" position={Position.Right} className="!w-2 !h-2" style={{ background: branch?.color || '#8b5cf6' }} />
+      <Handle type="source" position={Position.Right} className="!w-2 !h-2" style={{ background: branch?.color }} />
     </div>
   );
 };
@@ -179,7 +155,7 @@ export const TimelineFlow = ({
   branches, snapshots, currentBranchId, currentSnapshotId, selectedSnapshotId,
   isLoading, projectName = 'Untitled Project',
   onCreateSnapshot, onRestoreSnapshot, onSelectSnapshot, onCreateBranch,
-  onSwitchBranch, onDeleteBranch: _onDeleteBranch, onMergeBranch, onClose,
+  onSwitchBranch, onDeleteBranch, onMergeBranch, onClose,
 }: TimelineFlowProps) => {
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [commitName, setCommitName] = useState('');
@@ -298,7 +274,7 @@ export const TimelineFlow = ({
 
   const onConnect = useCallback((params: Connection) => setEdges((eds) => addEdge({ ...params, type: 'smoothstep' }, eds)), [setEdges]);
   
-  const onPaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
+  const onPaneContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY });
   }, []);

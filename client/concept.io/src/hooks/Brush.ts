@@ -27,9 +27,7 @@ export const useBrush = (canvas : fabric.Canvas | null) => {
   const squarePatternBrush = useRef<fabric.PatternBrush | null>(null);
   const diamondPatternBrush = useRef<fabric.PatternBrush | null>(null);
   const texturePatternBrush = useRef<fabric.PatternBrush | null>(null);
-  const PencilBrush = useRef<fabric.PencilBrush | null>(null);
-  const SprayBrush = useRef<fabric.SprayBrush | null>(null);
-  const CircleBrush = useRef<fabric.CircleBrush | null>(null);
+  
 
   const initializePatternBrushes = () => {
         if(canvas && !initializedBrush){
@@ -52,19 +50,6 @@ export const useBrush = (canvas : fabric.Canvas | null) => {
   
           return patternCanvas;
       };
-
-      //Pencil Brush
-
-      PencilBrush.current = new fabric.PencilBrush(canvas);
-      
-      //Circle Brush
-      CircleBrush.current = new fabric.CircleBrush(canvas);
-
-      //Spray Brush
-      SprayBrush.current = new fabric.SprayBrush(canvas);
-      
-    
-     
   
         // Horizontal lines brush
       hLinePatternBrush.current = new fabric.PatternBrush(canvas);
@@ -163,15 +148,6 @@ export const useBrush = (canvas : fabric.Canvas | null) => {
         let brush : fabric.BaseBrush | null = currentBrush ?? null;
   
         switch(brushType){
-          case 'pencil':
-            brush = PencilBrush.current;
-            break;
-          case 'Circle':
-            brush = CircleBrush.current;
-            break;
-          case 'Spray':
-            brush = SprayBrush.current;
-            break;
           case 'hline':
             brush = hLinePatternBrush.current;
             break;

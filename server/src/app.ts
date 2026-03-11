@@ -41,15 +41,6 @@ class App {
         this.clientDir = params.clientDir;
         this.db = params.db;
         this.url = params.url;
-
-        require('dotenv').config();
-        this.session = require('express-session');
-        this.redisStore = require('connect-redis').default;
-        this.redisClient = require('./config/redis');
-        this.cookieParser = require('cookie-parser');
-        this.connectDB = require('./config/db');
-
-
         this.configureApp(params.initOnStart);
         this.configureMiddlewares();
         this.configureControllers(controllers);
@@ -76,16 +67,8 @@ class App {
         this.app.use(helmet()); //for securing the app by setting various HTTP headers
         this.app.use(compression()); //for compressing the response bodies
 
-        this.app.use(express.json()); //for parsing request's json body
-        this.app.use(express.urlencoded({ extended: true }));//for decoding the encoded url
-        this.app.use(this.cookieParser()); //for parsing cookies
-        this.app.use(this.session({
-            store: new this.RedisStore({client: this.redisClient.redisClient}),
-            secret: process.env.SESSION_SECRET || 'supersecret',
-            resave: false,
-            saveUninitialized: false,
-            cookie: { secure: false, httpOnly: true, maxAge: 3600000 },
-        }))
+        this.app.use(express.json({ limit: '100mb' })); //for parsing request's json body - increased limit for large images
+        this.app.use(express.urlencoded({ extended: true, limit: '100mb' }));//for decoding the encoded url
 
         this.app.get('/', (req, res) => {
             res.json({ message: 'Server is running' });

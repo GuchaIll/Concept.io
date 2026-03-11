@@ -28,6 +28,10 @@ import {InMemoryDatabase} from './db/inMemory.db';
 import {MongoDBDatabase} from './db/mongo.db';
 import {PostgresDatabase} from './db/postgres.db';
 import {VersionController} from './controllers/version.controller';
+import {GenerationController} from './controllers/generation.controller';
+import {CutoutController} from './controllers/cutout.controller';
+import {EditController} from './controllers/edit.controller';
+import {ProjectController} from './controllers/project.controller';
 import * as dotenv from 'dotenv';
 
 // Load environment variables
@@ -37,7 +41,11 @@ dotenv.config();
 
 const app = new App([
     // Add controllers here
+    new ProjectController(),
     new VersionController(),
+    new GenerationController(),
+    new CutoutController(),
+    new EditController(),
     ],
     {clientDir : path.join(__dirname, '../client'),
         initOnStart: true,

@@ -1,4 +1,8 @@
+import { useCanvasContext } from "../../contexts/CanvasContext";
+import { memo } from "react";
+
 export const ShareSubmenu = () => {
+  const {canvas} = useCanvasContext();
 
   const getSessionInviteLink = () => {
     const roomId = window.location.pathname.split('/').pop() || 'default-room';

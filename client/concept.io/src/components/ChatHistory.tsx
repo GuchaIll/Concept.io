@@ -1,6 +1,6 @@
-import {useEffect, useRef, useState} from "react";
+import {useEffect, useRef, useState, useCallback} from "react";
 import MessageEntry from "./Entry/MessageEntry.tsx";
-import { WebSocketService } from "../services/WebSocketService";
+import {WebSocketService} from "../services/WebSocketService";
 
 interface chatMessage {
     user: string;
@@ -35,7 +35,6 @@ const ChatHistory = () => {
     
     useEffect(() => {
         const ws = WebSocketService.getInstance();
-        if(ws && ws.isConnected()) {
         ws.setCallbacks({
             onMessageAdded: (msg: chatMessage) => {
                 setMessages(messages => [...messages,
@@ -49,8 +48,7 @@ const ChatHistory = () => {
                 ]);
             }
         })
-    } 
-}, []);  
+    })
     return (
         <div className="relative h-64 w-80 rounded-lg">
             {/* Scrollable area */}

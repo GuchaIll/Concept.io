@@ -402,7 +402,7 @@ export const useVersionTimeline = ({
         
         objects.forEach((objData: any) => {
           fabric.util.enlivenObjects([objData]).then((enlivenedObjects) => {
-            (enlivenedObjects as fabric.FabricObject[]).forEach((obj: fabric.FabricObject) => {
+            enlivenedObjects.forEach((obj: fabric.Object) => {
               obj.layerId = layerSnapshot.layerId;
               obj.visible = layerSnapshot.visible;
               obj.opacity = (obj.opacity || 1) * layerSnapshot.opacity;
