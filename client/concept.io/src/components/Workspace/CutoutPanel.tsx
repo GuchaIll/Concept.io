@@ -126,6 +126,13 @@ export const CutoutPanel = ({
     });
   };
 
+  // Switching modes inverts the selection: subject ↔ background are complements.
+  const handleModeChange = (next: Mode) => {
+    if (next === mode) return;
+    setMode(next);
+    setSelectedIds(new Set(proposals.filter(p => !selectedIds.has(p.id)).map(p => p.id)));
+  };
+
   // Confirm passes the SUBJECT (kept) masks — non-selected proposals.
   const handleConfirm = () => {
     const subjectMasks = proposals
@@ -196,13 +203,34 @@ export const CutoutPanel = ({
 
             {/* SAM overlays — all regions always visible, opacity encodes role */}
             {segments.map(seg => (
-              <img
+              <div
                 key={seg.id}
-                src={seg.overlay}
-                className="absolute inset-0 w-full h-full object-contain pointer-events-none transition-opacity duration-150"
+                className="absolute inset-0 w-full h-full pointer-events-none transition-opacity duration-150"
                 style={{ opacity: overlayOpacity(seg.id) }}
-                alt={`Overlay ${seg.id}`}
-              />
+              >
+                {/* Coloured region overlay */}
+                <img
+                  src={seg.overlay}
+                  className="w-full h-full object-contain"
+                  alt={`Overlay ${seg.id}`}
+                />
+                {/* Diagonal hatch pattern on selected (background) regions */}
+                {selectedIds.has(seg.id) && (
+                  <img
+                    src={seg.overlay}
+                    className="absolute inset-0 w-full h-full object-contain"
+                    style={{
+                      mixBlendMode: 'multiply',
+                      opacity: 0.9,
+                      maskImage:
+                        'repeating-linear-gradient(45deg, transparent, transparent 3px, black 3px, black 5px)',
+                      WebkitMaskImage:
+                        'repeating-linear-gradient(45deg, transparent, transparent 3px, black 3px, black 5px)',
+                    }}
+                    alt=""
+                  />
+                )}
+              </div>
             ))}
 
             {/* Loading spinner */}
@@ -234,12 +262,12 @@ export const CutoutPanel = ({
             <ModeButton
               label="Subject"
               active={mode === 'subject'}
-              onClick={() => setMode('subject')}
+              onClick={() => handleModeChange('subject')}
             />
             <ModeButton
               label="Background"
               active={mode === 'background'}
-              onClick={() => setMode('background')}
+              onClick={() => handleModeChange('background')}
             />
           </div>
         </div>

@@ -12,6 +12,7 @@
     "clean": "rimraf dist .tsbuildinfo"
   },
   "dependencies": {
+    "@octokit/rest": "^22.0.1",
     "@types/dotenv": "^8.2.3",
     "@types/pug": "^2.0.10",
     "@types/ws": "^8.18.1",

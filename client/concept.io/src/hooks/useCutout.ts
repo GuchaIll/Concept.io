@@ -39,6 +39,7 @@ interface CutoutResult {
   imageData?: string;
   originalSize?: [number, number];
   processingTime?: number;
+  cropBox?: [number, number, number, number]; // [left, top, width, height] in px within original
   error?: string;
 }
 

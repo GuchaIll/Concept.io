@@ -925,7 +925,7 @@ export const FCanvas = () => {
     // Add to the generation queue immediately
     setGenerationJobs(prev => [...prev, {
       id: clientJobId,
-      prompt: `Γ£Å∩╕Å ${params.prompt}`,
+      prompt: `${params.prompt}`,
       status: 'pending' as const,
       progress: 0,
     }]);
@@ -1046,25 +1046,21 @@ export const FCanvas = () => {
     setPendingCutout(null);
 
     let finalImageData = imageData;
-    let cropOffsetX = 0;
-    let cropOffsetY = 0;
-    let preScaleW   = 0;   // uncropped image width in px ΓÇö used to compute canvas scale
-    let preScaleH   = 0;
+    // cropBox from server: [left, top, width, height] in original-image px
+    let serverCropBox: [number, number, number, number] | undefined;
+    // Original image size (before crop) — needed to map crop offset to canvas
+    let origW = 0;
+    let origH = 0;
 
     if (maskData.length > 0) {
       try {
         const result = await applyMaskCutout(imageData, maskData, settings);
         if (result.success && result.imageData) {
-          // Measure the uncropped cutout dimensions before cropping
-          await new Promise<void>(res => {
-            const probe = new Image();
-            probe.onload = () => { preScaleW = probe.width; preScaleH = probe.height; res(); };
-            probe.src = result.imageData!;
-          });
-          const { croppedUrl, offsetX, offsetY } = await tightCrop(result.imageData);
-          finalImageData = croppedUrl;
-          cropOffsetX    = offsetX;
-          cropOffsetY    = offsetY;
+          finalImageData = result.imageData;
+          serverCropBox  = result.cropBox;
+          if (result.originalSize) {
+            [origW, origH] = result.originalSize;
+          }
         } else {
           console.warn('[CutoutPanel] applyMask failed, using original');
         }
@@ -1085,14 +1081,14 @@ export const FCanvas = () => {
       const baseX = cutoutBounds?.left ?? 100;
       const baseY = cutoutBounds?.top  ?? 100;
 
-      // Map the pixel crop offset to canvas space using the original image scale
+      // Map the server's crop offset to canvas space
       let posX = baseX;
       let posY = baseY;
-      if (preScaleW > 0 && preScaleH > 0 && cutoutBounds?.width && cutoutBounds?.height) {
-        const scaleX = cutoutBounds.width  / preScaleW;
-        const scaleY = cutoutBounds.height / preScaleH;
-        posX = baseX + cropOffsetX * scaleX;
-        posY = baseY + cropOffsetY * scaleY;
+      if (serverCropBox && origW > 0 && origH > 0 && cutoutBounds?.width && cutoutBounds?.height) {
+        const scaleX = cutoutBounds.width  / origW;
+        const scaleY = cutoutBounds.height / origH;
+        posX = baseX + serverCropBox[0] * scaleX;
+        posY = baseY + serverCropBox[1] * scaleY;
       }
 
       // Use the cropped image's natural dimensions as the target size so the
@@ -1126,9 +1122,21 @@ export const FCanvas = () => {
           console.error('[CutoutConfirm] Fallback FabricImage.fromURL failed:', fallbackErr);
         }
       }
+
+      // Switch to select tool so the user can immediately transform the placed image
+      toolDispatch({
+        type: 'SET_ACTIVE_TOOL',
+        payload: {
+          id: 'select',
+          icon: MousePointer2,
+          label: 'Select',
+          hasSubmenu: true,
+          submenuType: 'select',
+        },
+      });
     };
     img.src = finalImageData;
-  }, [pendingCutout, applyMaskCutout, tightCrop, canvas, layerRef]);
+  }, [pendingCutout, applyMaskCutout, tightCrop, canvas, layerRef, toolDispatch]);
 
   const handleCutoutCancel = useCallback(() => {
     if (!pendingCutout) return;
@@ -1163,13 +1171,30 @@ export const FCanvas = () => {
     }, 100);
   }, [canvas, layer.layers, versionContext, navigate]);
 
-  // Calculate smart tag position (center-bottom of selection)
+  // Calculate smart tag position — convert scene coordinates to screen/DOM
+  // coordinates so the tag lines up with the selection on screen.
   const getSmartTagPosition = () => {
     if (!selection.selectionBounds) return { x: 0, y: 0 };
-    return {
-      x: selection.selectionBounds.left + selection.selectionBounds.width / 2,
-      y: selection.selectionBounds.top + selection.selectionBounds.height,
-    };
+
+    // Scene-space center-bottom of the selection
+    const sceneX = selection.selectionBounds.left + selection.selectionBounds.width / 2;
+    const sceneY = selection.selectionBounds.top + selection.selectionBounds.height;
+
+    if (canvas) {
+      const vpt = canvas.viewportTransform;
+      // Apply viewport transform (zoom + pan) to get canvas-px coords
+      const canvasPxX = vpt[0] * sceneX + vpt[2] * sceneY + vpt[4];
+      const canvasPxY = vpt[1] * sceneX + vpt[3] * sceneY + vpt[5];
+
+      // Offset by the canvas element's position within the DOM
+      const el = canvas.getElement() as HTMLCanvasElement;
+      const rect = el.getBoundingClientRect();
+
+      return { x: rect.left + canvasPxX, y: rect.top + canvasPxY };
+    }
+
+    // Fallback when canvas isn't ready — raw scene coords
+    return { x: sceneX, y: sceneY };
   };
 
   return (
@@ -1201,7 +1226,7 @@ export const FCanvas = () => {
         </div>
       )}
 
-      {/* ΓöÇΓöÇ AI Edit Panel (inpaint / outpaint) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
+      {/* ΓöÇΓöÇ AI Edit Panel (inpaint / outpaint)*/}
       {pendingEdit && (
         <EditPanel
           imageData={pendingEdit.imageData}
@@ -1266,6 +1291,11 @@ export const FCanvas = () => {
           onLayerTypeChange={handleLayerTypeChange}
           onReorderLayers={handleReorderLayers}
           onViewHistory={handleViewHistory}
+          onSaveLayerAsAsset={handleSaveLayerAsAsset}
+          onOpacityChange={layer.updateLayerOpacity}
+          onBlendModeChange={layer.updateLayerBlendMode}
+          onLockToggle={layer.toggleLayerLock}
+          onRemoveLayer={layer.removeLayer}
         />
       )}
 

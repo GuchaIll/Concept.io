@@ -127,3 +127,6 @@ server/diffusion-service/models/
 *.pt
 *.pth
 *.bin
+
+*_old_*
+*_edit_*

@@ -49,6 +49,58 @@ export const useCanvas = (config?: CanvasConfig) => {
     }
   });
 
+  // When a canvas image object (asset) is selected, sample its average color
+  // and set it as the brush color so the color picker reflects the asset.
+  useEffect(() => {
+    if (!canvas) return;
+
+    const sampleImageColor = (obj: fabric.FabricObject) => {
+      if (obj.type !== 'image') return;
+      try {
+        const imgEl = (obj as fabric.FabricImage).getElement() as HTMLImageElement | HTMLCanvasElement | HTMLVideoElement;
+        const tmp = document.createElement('canvas');
+        tmp.width = 16;
+        tmp.height = 16;
+        const ctx = tmp.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(imgEl, 0, 0, 16, 16);
+        const data = ctx.getImageData(0, 0, 16, 16).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          // Skip fully-transparent pixels (alpha < 16)
+          if (data[i + 3] < 16) continue;
+          r += data[i]; g += data[i + 1]; b += data[i + 2];
+          count++;
+        }
+        if (count === 0) return;
+        brushProps.handleColorChange({
+          r: Math.round(r / count),
+          g: Math.round(g / count),
+          b: Math.round(b / count),
+          a: 1,
+        });
+      } catch {
+        // Cross-origin or tainted canvas — silently ignore
+      }
+    };
+
+    const onSelectionCreated = (e: { selected: fabric.FabricObject[] }) => {
+      const active = e.selected?.[0] ?? canvas.getActiveObject();
+      if (active) sampleImageColor(active);
+    };
+    const onSelectionUpdated = (e: { selected: fabric.FabricObject[] }) => {
+      const active = e.selected?.[0] ?? canvas.getActiveObject();
+      if (active) sampleImageColor(active);
+    };
+
+    canvas.on('selection:created', onSelectionCreated);
+    canvas.on('selection:updated', onSelectionUpdated);
+    return () => {
+      canvas.off('selection:created', onSelectionCreated);
+      canvas.off('selection:updated', onSelectionUpdated);
+    };
+  }, [canvas, brushProps.handleColorChange]);
+
   // When tool changes from eyedropper to another tool, restore previous color
   useEffect(() => {
     const wasUsingEyedropper = brushProps.previousTool === 'Eyedropper';
