@@ -118,3 +118,12 @@ dist/
 
 # mypy cache
 .mypy_cache/
+
+# diffusion weights
+server/diffusion-service/models/
+
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
