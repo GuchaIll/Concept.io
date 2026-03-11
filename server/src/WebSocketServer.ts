@@ -45,6 +45,12 @@ export class WebSocketServer {
                         return;
                     }
 
+                    // Check if it's an asset vault event
+                    if (extractedData.type?.startsWith('asset:')) {
+                        this.handleVersionEvent(ws, extractedData as VersionEvent);
+                        return;
+                    }
+
                     // Handle as canvas event
                     const canvasEvent = extractedData as CanvasEvent;
 
@@ -121,6 +127,27 @@ export class WebSocketServer {
                     await this.handleBranchMerge(ws, payload, userId, roomId);
                     break;
 
+                // Asset Vault Events
+                case 'asset:sync:request':
+                    await this.handleAssetSyncRequest(ws, roomId);
+                    break;
+
+                case 'asset:create':
+                    await this.handleAssetCreate(ws, payload, userId, roomId);
+                    break;
+
+                case 'asset:update':
+                    await this.handleAssetUpdate(ws, payload, userId, roomId);
+                    break;
+
+                case 'asset:delete':
+                    await this.handleAssetDelete(ws, payload, roomId);
+                    break;
+
+                case 'asset:use':
+                    await this.handleAssetUse(ws, payload, roomId);
+                    break;
+
                 default:
                     console.warn('Unknown version event type:', type);
             }
@@ -177,7 +204,7 @@ export class WebSocketServer {
 
     private async handleSnapshotCreate(
         ws: WebSocket,
-        payload: { name: string; description?: string; layers?: ILayerSnapshot[]; thumbnail?: string; branchId: string },
+        payload: { id?: string; name: string; description?: string; layers?: ILayerSnapshot[]; thumbnail?: string; branchId: string; sourceSnapshotId?: string },
         userId: string,
         roomId: string
     ) {
@@ -203,7 +230,7 @@ export class WebSocketServer {
         }
 
         const snapshot: ISnapshot = {
-            id: existingCurrentSnapshot?.id || uuidv4(), // Reuse ID if updating existing
+            id: payload.id || existingCurrentSnapshot?.id || uuidv4(), // Prefer client ID for de-duplication
             projectId: roomId,
             branchId: payload.branchId,
             name: payload.name,
@@ -416,6 +443,102 @@ export class WebSocketServer {
     }
 
     // ============================================
+    // Asset Vault Event Handlers
+    // ============================================
+
+    private async handleAssetSyncRequest(ws: WebSocket, roomId: string) {
+        const assetData = await DAC.db.getAssetData(roomId);
+        
+        console.log('Sending asset sync:', {
+            assetsCount: assetData.assets.length,
+        });
+
+        ws.send(JSON.stringify({
+            type: 'asset:sync',
+            payload: assetData,
+        }));
+    }
+
+    private async handleAssetCreate(ws: WebSocket, payload: any, userId: string, roomId: string) {
+        console.log('handleAssetCreate received:', {
+            name: payload.name,
+            tags: payload.tags,
+            category: payload.category,
+            imageDataLength: payload.imageData?.length || 0,
+        });
+
+        const asset = {
+            id: payload.id || uuidv4(),
+            projectId: roomId,
+            name: payload.name,
+            description: payload.description,
+            imageData: payload.imageData,
+            thumbnailData: payload.thumbnailData || payload.imageData,
+            tags: payload.tags || [],
+            category: payload.category,
+            width: payload.width || 100,
+            height: payload.height || 100,
+            createdBy: userId,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            sourceLayerId: payload.sourceLayerId,
+            sourceSnapshotId: payload.sourceSnapshotId,
+            usageCount: 0,
+            lastUsedAt: undefined,
+            isShared: payload.isShared || false,
+            sharedWith: payload.sharedWith || [],
+        };
+
+        const savedAsset = await DAC.db.saveAsset(asset);
+
+        this.broadcastToRoomIncludingSender(roomId, JSON.stringify({
+            type: 'asset:created',
+            payload: savedAsset,
+        }));
+
+        console.log('Asset created:', savedAsset.name);
+    }
+
+    private async handleAssetUpdate(ws: WebSocket, payload: any, userId: string, roomId: string) {
+        const { assetId, updates } = payload;
+        
+        const updatedAsset = await DAC.db.updateAsset(assetId, {
+            ...updates,
+            updatedAt: Date.now(),
+        });
+
+        if (updatedAsset) {
+            this.broadcastToRoomIncludingSender(roomId, JSON.stringify({
+                type: 'asset:updated',
+                payload: updatedAsset,
+            }));
+            console.log('Asset updated:', updatedAsset.name);
+        }
+    }
+
+    private async handleAssetDelete(ws: WebSocket, payload: any, roomId: string) {
+        const { assetId } = payload;
+        
+        await DAC.db.deleteAsset(assetId);
+
+        this.broadcastToRoomIncludingSender(roomId, JSON.stringify({
+            type: 'asset:deleted',
+            payload: { assetId },
+        }));
+
+        console.log('Asset deleted:', assetId);
+    }
+
+    private async handleAssetUse(ws: WebSocket, payload: any, roomId: string) {
+        const { assetId } = payload;
+        
+        await DAC.db.incrementAssetUsage(assetId);
+
+        // No need to broadcast usage - it's local tracking
+        console.log('Asset usage incremented:', assetId);
+    }
+
+    // ============================================
     // Existing Methods
     // ============================================
     
@@ -470,4 +593,6 @@ export class WebSocketServer {
             }
         });
     }
+    
+    
 }
