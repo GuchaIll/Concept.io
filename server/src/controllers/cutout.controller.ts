@@ -26,6 +26,7 @@ interface CutoutResponse {
   imageData?: string;
   originalSize?: [number, number];
   processingTime?: number;
+  cropBox?: [number, number, number, number]; // [left, top, width, height] in px
   error?: string;
 }
 
@@ -71,6 +72,7 @@ interface PythonCutoutResponse {
   image_data?: string;
   original_size?: [number, number];
   processing_time?: number;
+  crop_box?: [number, number, number, number];
   error?: string;
 }
 
@@ -234,6 +236,7 @@ export class CutoutController extends Controller {
         imageData: python.image_data,
         originalSize: python.original_size,
         processingTime: python.processing_time,
+        cropBox: python.crop_box,
         error: python.error,
       };
 

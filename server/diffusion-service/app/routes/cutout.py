@@ -83,7 +83,7 @@ async def apply_selected_masks(request: CutoutFromMaskRequest):
           f"refine={request.refine_mask}")
 
     try:
-        result, original_size = apply_mask_to_image(
+        result, original_size, crop_box = apply_mask_to_image(
             image_data=request.image_data,
             mask_data_list=request.mask_data,
             feather_radius=request.feather_radius,
@@ -96,13 +96,14 @@ async def apply_selected_masks(request: CutoutFromMaskRequest):
         output_base64 = base64.b64encode(output_buffer.getvalue()).decode()
 
         processing_time = time.time() - start_time
-        print(f"[/cutout/apply] Done in {processing_time:.2f}s")
+        print(f"[/cutout/apply] Done in {processing_time:.2f}s, crop_box={crop_box}")
 
         return CutoutResponse(
             success=True,
             image_data=f"data:image/png;base64,{output_base64}",
             original_size=original_size,
             processing_time=processing_time,
+            crop_box=crop_box,
         )
     except Exception as e:
         import traceback

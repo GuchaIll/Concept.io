@@ -80,8 +80,30 @@ export const ColorPalette = ({ currentColor, onColorChange, onClose }: ColorPale
   const [isDraggingWheel, setIsDraggingWheel] = useState(false);
   const [isDraggingDiamond, setIsDraggingDiamond] = useState(false);
 
-  // Update color when HSL changes
+  // Track whether the last HSL change came from an external currentColor prop update
+  // to avoid calling onColorChange in a loop.
+  const isExternalUpdate = useRef(false);
+
+  // Sync internal HSL state when currentColor prop changes externally
+  // (e.g. eyedropper picks a color from an image asset, or asset selection sets brush color)
   useEffect(() => {
+    const [h, s, l] = rgbToHsl(currentColor.r, currentColor.g, currentColor.b);
+    const [curR, curG, curB] = hslToRgb(hue, saturation, lightness);
+    if (curR !== currentColor.r || curG !== currentColor.g || curB !== currentColor.b) {
+      isExternalUpdate.current = true;
+      setHue(h);
+      setSaturation(s);
+      setLightness(l);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentColor.r, currentColor.g, currentColor.b]);
+
+  // Update color when HSL changes (from user interaction inside the palette)
+  useEffect(() => {
+    if (isExternalUpdate.current) {
+      isExternalUpdate.current = false;
+      return;
+    }
     const [r, g, b] = hslToRgb(hue, saturation, lightness);
     onColorChange({ r, g, b, a: 1 });
   }, [hue, saturation, lightness, onColorChange]);

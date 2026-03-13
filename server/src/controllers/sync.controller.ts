@@ -177,7 +177,8 @@ export class SyncController extends Controller {
       res.json({ success: true, data: log });
     } catch (error: any) {
       console.error('Error triggering sync:', error);
-      res.status(500).json({ success: false, error: error.message });
+      const status = mapSyncErrorStatus(error);
+      res.status(status).json({ success: false, error: error.message });
     }
   }
 
@@ -196,7 +197,8 @@ export class SyncController extends Controller {
       res.json({ success: true, data: logs });
     } catch (error: any) {
       console.error('Error triggering sync-all:', error);
-      res.status(500).json({ success: false, error: error.message });
+      const status = mapSyncErrorStatus(error);
+      res.status(status).json({ success: false, error: error.message });
     }
   }
 
@@ -223,4 +225,14 @@ function stripSecrets(target: ISyncTarget): ISyncTarget {
     (cleaned.config as any).encryptedToken = '***';
   }
   return cleaned;
+}
+
+/**
+ * Map known sync-service error messages to proper HTTP status codes.
+ */
+function mapSyncErrorStatus(error: any): number {
+  const msg: string = error?.message ?? '';
+  if (msg.includes('not found'))  return 404;
+  if (msg.includes('is disabled')) return 409;
+  return 500;
 }

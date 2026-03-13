@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { Layer, LayerType } from '../../hooks/Layer';
+import type { Layer, LayerType, BlendMode } from '../../hooks/Layer';
 import { LayerTypes, blendModes } from '../../hooks/Layer';
 import { getLayerConstraints } from '../../config/layerConstraints';
 

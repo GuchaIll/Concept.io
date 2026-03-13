@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState, useCallback} from "react";
+import {useEffect, useRef, useState} from "react";
 import MessageEntry from "./Entry/MessageEntry.tsx";
 import {WebSocketService} from "../services/WebSocketService";
 

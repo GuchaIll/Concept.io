@@ -718,7 +718,22 @@ def apply_mask_to_image(
         result = apply_feathering(result, feather_radius)
 
     print(f"[apply-mask] Done: {int(binary.sum())} foreground pixels in final mask")
-    return result, original_size
+
+    # ── Tight crop: trim to the bounding box of non-transparent pixels ──
+    alpha = np.array(result.split()[3])       # H×W uint8 alpha channel
+    rows = np.any(alpha > 0, axis=1)
+    cols = np.any(alpha > 0, axis=0)
+    if rows.any() and cols.any():
+        y0, y1 = int(np.argmax(rows)),     int(len(rows) - 1 - np.argmax(rows[::-1]))
+        x0, x1 = int(np.argmax(cols)),     int(len(cols) - 1 - np.argmax(cols[::-1]))
+        crop_box = (x0, y0, x1 - x0 + 1, y1 - y0 + 1)   # (left, top, w, h) in px
+        result = result.crop((x0, y0, x1 + 1, y1 + 1))
+        print(f"[apply-mask] Cropped to {crop_box[2]}×{crop_box[3]} "
+              f"at ({crop_box[0]}, {crop_box[1]})")
+    else:
+        crop_box = (0, 0, w, h)
+
+    return result, original_size, crop_box
 
 
 # ─────────────────────────────────────────────────────────────────

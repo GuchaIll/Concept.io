@@ -103,6 +103,7 @@ class CutoutResponse(BaseModel):
     image_data: Optional[str] = None  # Base64 encoded PNG with transparency
     original_size: Optional[tuple] = None
     processing_time: Optional[float] = None
+    crop_box: Optional[tuple] = None  # (left, top, width, height) in px — tight crop within original
     error: Optional[str] = None
 
 
