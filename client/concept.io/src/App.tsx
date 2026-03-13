@@ -1,5 +1,5 @@
 import Navbar from "./components/Navbar"
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom'
+import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom'
 import './App.css'
 
 import Home from './pages/index'
@@ -21,8 +21,20 @@ function App() {
     <Router>
       <SessionProvider>
         <VersionProvider>
-          <div className="h-screen overflow-hidden relative "> 
-            <Navbar />
+          <AppShell />
+        </VersionProvider>
+      </SessionProvider>
+    </Router>
+  )
+}
+
+/** Inner shell — needs Router context for useLocation */
+function AppShell() {
+  const { pathname } = useLocation();
+  const hideNavbar = pathname === '/canvas' || pathname === '/timeline';
+  return (
+          <div className="h-screen overflow-hidden relative ">
+            {!hideNavbar && <Navbar />}
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/auth" element={<AuthPage />} />
@@ -37,9 +49,6 @@ function App() {
               <Route path="/profile" element={<Profile />} />
             </Routes>
           </div>
-        </VersionProvider>
-      </SessionProvider>
-    </Router>
   )
 }
 

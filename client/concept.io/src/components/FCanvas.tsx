@@ -26,6 +26,8 @@ import type { CutoutSettings } from '../types/asset.interface';
 import { CutoutPanel } from './Workspace/CutoutPanel';
 import { EditPanel } from './Workspace/EditPanel';
 import type { EditGenerateParams } from './Workspace/EditPanel';
+import { LiquifyPanel } from './Workspace/LiquifyPanel';
+import { EffectsPanel } from './Workspace/EffectsPanel';
 import { ToastContainer } from './Toast';
 import { SyncSettings } from './Panel/SyncSettings';
 import * as fabric from 'fabric';
@@ -78,6 +80,22 @@ export const FCanvas = () => {
 
   // Pending edit: holds source image data while EditPanel is open
   const [pendingEdit, setPendingEdit] = useState<{
+    imageData: string;
+    width: number;
+    height: number;
+    objectRef: fabric.FabricObject | null;
+  } | null>(null);
+
+  // Pending liquify: holds source image data while LiquifyPanel is open
+  const [pendingLiquify, setPendingLiquify] = useState<{
+    imageData: string;
+    width: number;
+    height: number;
+    objectRef: fabric.FabricObject | null;
+  } | null>(null);
+
+  // Pending effects: holds source image while EffectsPanel is open
+  const [pendingEffects, setPendingEffects] = useState<{
     imageData: string;
     width: number;
     height: number;
@@ -158,6 +176,15 @@ export const FCanvas = () => {
   useEffect(() => {
     versionContext.setSocket(socket);
   }, [socket, versionContext.setSocket]);
+
+  // Show toast when folder/git sync completes
+  useEffect(() => {
+    if (versionContext.syncStatus === 'success') {
+      toast.addToast('Snapshot synced successfully', 'success', 1500);
+    } else if (versionContext.syncStatus === 'failed') {
+      toast.addToast('Sync failed', 'error', 1500);
+    }
+  }, [versionContext.syncStatus, toast]);
 
   // Reset restore flag when pending restore changes (allows new restores)
   useEffect(() => {
@@ -521,7 +548,7 @@ export const FCanvas = () => {
                     imageData: status.imageData,
                     proposals,
                     jobId,
-                    bounds: bounds ?? undefined,
+                    bounds: bounds as { left: number; top: number; width: number; height: number } | undefined,
                   });
                 } finally {
                   // Always mark job as completed ΓÇö never leave at 95%
@@ -739,6 +766,46 @@ export const FCanvas = () => {
       return;
     }
     
+    // Liquify — open the mesh-warp panel for the selected object
+    if (selection.activeAction === 'liquify' && selection.hasObjectsSelected && canvas) {
+      const activeObj = canvas.getActiveObject();
+      if (activeObj) {
+        const rawDataUrl = activeObj.toDataURL({ format: 'png' });
+        const tmpImg = new Image();
+        tmpImg.onload = () => {
+          setPendingLiquify({
+            imageData: rawDataUrl,
+            width: tmpImg.naturalWidth  || 512,
+            height: tmpImg.naturalHeight || 512,
+            objectRef: activeObj,
+          });
+        };
+        tmpImg.src = rawDataUrl;
+        selection.clearSelection();
+        return;
+      }
+    }
+
+    // Effects panel
+    if (selection.activeAction === 'effects' && selection.hasObjectsSelected && canvas) {
+      const activeObj = canvas.getActiveObject();
+      if (activeObj) {
+        const rawDataUrl = activeObj.toDataURL({ format: 'png' });
+        const tmpImg = new Image();
+        tmpImg.onload = () => {
+          setPendingEffects({
+            imageData: rawDataUrl,
+            width: tmpImg.naturalWidth  || 512,
+            height: tmpImg.naturalHeight || 512,
+            objectRef: activeObj,
+          });
+        };
+        tmpImg.src = rawDataUrl;
+        selection.clearSelection();
+        return;
+      }
+    }
+
     // For other actions, just clear the selection for now
     if (selection.activeAction === 'edit' && selection.hasObjectsSelected && canvas) {
       // Extract the selected object's image data and open EditPanel
@@ -985,6 +1052,91 @@ export const FCanvas = () => {
     setPendingEdit(null);
   }, []);
 
+  // -- LiquifyPanel callbacks -------------------------------------------
+
+  /** Replace the original canvas object with the warped PNG result. */
+  const handleLiquifyApply = useCallback((resultImageData: string) => {
+    if (!canvas || !pendingLiquify) {
+      setPendingLiquify(null);
+      return;
+    }
+    const { objectRef } = pendingLiquify;
+    // Load via a plain Image element so we avoid crossOrigin quirks with
+    // data-URLs that can cause FabricImage.fromURL to silently resolve with a
+    // blank image in some browser / Fabric-v6 configurations.
+    const img = new Image();
+    img.onload = () => {
+      const newImg = new fabric.FabricImage(img, {
+        left:        (objectRef as any)?.left   ?? 0,
+        top:         (objectRef as any)?.top    ?? 0,
+        scaleX:      (objectRef as any)?.scaleX ?? 1,
+        scaleY:      (objectRef as any)?.scaleY ?? 1,
+        angle:       (objectRef as any)?.angle  ?? 0,
+        selectable:  true,
+        evented:     true,
+        hasControls: true,
+        hasBorders:  true,
+      });
+      (newImg as any).layerId = (objectRef as any)?.layerId;
+      if (objectRef) {
+        const idx = canvas.getObjects().indexOf(objectRef);
+        canvas.remove(objectRef);
+        if (idx >= 0) {
+          canvas.insertAt(idx, newImg);
+        } else {
+          canvas.add(newImg);
+        }
+      } else {
+        canvas.add(newImg);
+      }
+      canvas.setActiveObject(newImg);
+      canvas.requestRenderAll();
+      setPendingLiquify(null);
+    };
+    img.src = resultImageData;
+  }, [canvas, pendingLiquify]);
+
+  const handleLiquifyClose = useCallback(() => setPendingLiquify(null), []);
+
+  // -- EffectsPanel callbacks ------------------------------------------
+
+  const handleEffectsApply = useCallback((resultImageData: string) => {
+    if (!canvas || !pendingEffects) { setPendingEffects(null); return; }
+    const { objectRef } = pendingEffects;
+    const img = new Image();
+    img.onload = () => {
+      const newImg = new fabric.FabricImage(img, {
+        left:        (objectRef as any)?.left   ?? 0,
+        top:         (objectRef as any)?.top    ?? 0,
+        scaleX:      (objectRef as any)?.scaleX ?? 1,
+        scaleY:      (objectRef as any)?.scaleY ?? 1,
+        angle:       (objectRef as any)?.angle  ?? 0,
+        selectable:  true,
+        evented:     true,
+        hasControls: true,
+        hasBorders:  true,
+      });
+      (newImg as any).layerId = (objectRef as any)?.layerId;
+      if (objectRef) {
+        const idx = canvas.getObjects().indexOf(objectRef);
+        canvas.remove(objectRef);
+        if (idx >= 0) {
+          canvas.insertAt(idx, newImg);
+        } else {
+          canvas.add(newImg);
+        }
+      } else {
+        canvas.add(newImg);
+      }
+      canvas.setActiveObject(newImg);
+      canvas.requestRenderAll();
+      setPendingEffects(null);
+    };
+    img.src = resultImageData;
+  }, [canvas, pendingEffects]);
+
+  const handleEffectsClose = useCallback(() => setPendingEffects(null), []);
+
   // ΓöÇΓöÇ CutoutPanel callbacks ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   /**
@@ -1081,20 +1233,26 @@ export const FCanvas = () => {
       const baseX = cutoutBounds?.left ?? 100;
       const baseY = cutoutBounds?.top  ?? 100;
 
-      // Map the server's crop offset to canvas space
+      // Map the server's crop offset to canvas space.
+      // canvasScaleX/Y converts from server-image pixels → canvas pixels.
       let posX = baseX;
       let posY = baseY;
+      let canvasScaleX = 1;
+      let canvasScaleY = 1;
       if (serverCropBox && origW > 0 && origH > 0 && cutoutBounds?.width && cutoutBounds?.height) {
-        const scaleX = cutoutBounds.width  / origW;
-        const scaleY = cutoutBounds.height / origH;
-        posX = baseX + serverCropBox[0] * scaleX;
-        posY = baseY + serverCropBox[1] * scaleY;
+        canvasScaleX = cutoutBounds.width  / origW;
+        canvasScaleY = cutoutBounds.height / origH;
+        posX = baseX + serverCropBox[0] * canvasScaleX;
+        posY = baseY + serverCropBox[1] * canvasScaleY;
       }
 
-      // Use the cropped image's natural dimensions as the target size so the
-      // asset layer scales correctly on the canvas.
-      const targetW = cutoutBounds?.width  ?? img.width;
-      const targetH = cutoutBounds?.height ?? img.height;
+      // Scale the tight-cropped image dimensions to canvas coordinates.
+      // img.width/height are the server-pixel dimensions of the cropped result;
+      // multiplying by canvasScale converts them to the correct canvas-pixel
+      // footprint, preserving the subject's proportional size within the
+      // original generation bounds.
+      const targetW = img.width  * canvasScaleX;
+      const targetH = img.height * canvasScaleY;
 
       const newAssetLayer = await currentLayer.addAssetLayer(
         assetId, layerName, finalImageData, targetW, targetH, posX, posY,
@@ -1143,6 +1301,34 @@ export const FCanvas = () => {
     setGenerationJobs(prev => prev.filter(j => j.id !== pendingCutout.jobId));
     setPendingCutout(null);
   }, [pendingCutout]);
+
+  // Export canvas composite as PNG or JPEG
+  const handleExport = useCallback((format: 'png' | 'jpeg') => {
+    if (!canvas) {
+      toast.addToast('No canvas to export', 'warning');
+      return;
+    }
+
+    try {
+      const dataURL = canvas.toDataURL({
+        format,
+        quality: format === 'jpeg' ? 0.92 : undefined,
+        multiplier: 1,
+      });
+
+      const link = document.createElement('a');
+      link.download = `concept-export.${format === 'jpeg' ? 'jpg' : 'png'}`;
+      link.href = dataURL;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast.addToast(`Exported as ${format.toUpperCase()}`, 'success', 1500);
+    } catch (err) {
+      console.error('Export failed:', err);
+      toast.addToast('Export failed', 'error');
+    }
+  }, [canvas, toast]);
 
   // Auto-save current canvas state as "Current" snapshot before viewing history
   const handleViewHistory = useCallback(() => {
@@ -1237,6 +1423,28 @@ export const FCanvas = () => {
         />
       )}
 
+      {/* Liquify Panel */}
+      {pendingLiquify && (
+        <LiquifyPanel
+          imageData={pendingLiquify.imageData}
+          imageWidth={pendingLiquify.width}
+          imageHeight={pendingLiquify.height}
+          onApply={handleLiquifyApply}
+          onClose={handleLiquifyClose}
+        />
+      )}
+
+      {/* Effects Panel */}
+      {pendingEffects && (
+        <EffectsPanel
+          imageData={pendingEffects.imageData}
+          imageWidth={pendingEffects.width}
+          imageHeight={pendingEffects.height}
+          onApply={handleEffectsApply}
+          onClose={handleEffectsClose}
+        />
+      )}
+
       {/* Canvas Area */}
       <CanvasArea canvasRef={canvasRef} onAssetDrop={handleAssetDrop} />
 
@@ -1245,6 +1453,7 @@ export const FCanvas = () => {
         onBack={() => window.history.back()}
         onShare={() => setShowInvitationModal(true)}
         onSyncSettings={() => setShowSyncSettings((v) => !v)}
+        onExport={handleExport}
         isLive={true}
         collaborators={collaborators}
       />
