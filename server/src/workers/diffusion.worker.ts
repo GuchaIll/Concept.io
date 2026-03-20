@@ -9,6 +9,7 @@ import {
   JobStatus,
   ModelType,
   updateJobStatus,
+  cancelledJobs,
 } from '../queues/diffusion.queue';
 
 // Redis connection config
@@ -41,6 +42,7 @@ async function callDiffusionService(jobData: GenerationJobData): Promise<string>
       guidance_scale: jobData.guidanceScale,
       model: jobData.model,
       seed: jobData.seed,
+      asset_type: jobData.assetType || null,
     }),
   });
 
@@ -92,7 +94,18 @@ async function processGenerationJob(job: Job<GenerationJobData>): Promise<string
     
     while (!completed) {
       await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
-      
+
+      // ── Check if this job was cancelled while we were polling ──
+      if (cancelledJobs.has(data.id)) {
+        console.log(`Job ${data.id} was cancelled, aborting worker poll`);
+        cancelledJobs.delete(data.id);
+        // Best-effort: tell the Python service to drop the job too
+        try {
+          await fetch(`${DIFFUSION_SERVICE_URL}/job/${diffusionJobId}`, { method: 'DELETE' });
+        } catch { /* ignore */ }
+        return '';
+      }
+
       const status = await pollJobStatus(diffusionJobId);
       
       // Map diffusion service status to our status

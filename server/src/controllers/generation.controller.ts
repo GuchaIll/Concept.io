@@ -14,6 +14,7 @@ interface GenerationJob {
   negativePrompt?: string;
   width: number;
   height: number;
+  model?: string;
   status: 'pending' | 'loading_model' | 'generating' | 'completed' | 'failed';
   progress: number;
   imageData?: string;
@@ -67,6 +68,7 @@ export class GenerationController extends Controller {
         userId,
         projectId,
         selectionBounds,
+        assetType,
       } = req.body;
 
       if (!prompt) {
@@ -87,9 +89,10 @@ export class GenerationController extends Controller {
       const job: GenerationJob = {
         id: jobId,
         prompt,
-        negativePrompt: negativePrompt || 'blurry, bad quality, distorted, ugly, deformed, low resolution, artifacts, noise, watermark, text',
+        negativePrompt: negativePrompt || undefined,
         width: normalizedWidth,
         height: normalizedHeight,
+        model,
         status: 'pending',
         progress: 0,
         createdAt: new Date().toISOString(),
@@ -119,13 +122,14 @@ export class GenerationController extends Controller {
       // Start actual generation via Python diffusion service
       this.startRealGeneration(jobId, {
         prompt,
-        negativePrompt: job.negativePrompt || 'blurry, bad quality, distorted, ugly, deformed, low resolution, artifacts, noise, watermark, text',
+        negativePrompt: job.negativePrompt,
         width: normalizedWidth,
         height: normalizedHeight,
         steps,
         guidanceScale,
         model,
         seed,
+        assetType,
       });
 
       res.status(202).json({
@@ -145,13 +149,14 @@ export class GenerationController extends Controller {
    */
   private async startRealGeneration(jobId: string, params: {
     prompt: string;
-    negativePrompt: string;
+    negativePrompt?: string;
     width: number;
     height: number;
     steps: number;
     guidanceScale: number;
     model: string;
     seed?: number;
+    assetType?: string;
   }): Promise<void> {
     const job = jobs.get(jobId);
     if (!job) return;
@@ -219,6 +224,8 @@ export class GenerationController extends Controller {
           guidance_scale: params.guidanceScale,
           model: params.model,
           seed: params.seed,
+          use_refiner: params.useRefiner ?? false,
+          asset_type: params.assetType || null,
         }),
       });
 
@@ -259,7 +266,11 @@ export class GenerationController extends Controller {
    */
   private async pollDiffusionStatus(jobId: string, diffusionJobId: string): Promise<void> {
     const POLL_INTERVAL = 500; // 500ms between polls
-    const MAX_POLLS = 600; // Max 5 minutes (600 * 500ms)
+
+    // SDXL is heavier — allow more time (10 min vs 5 min for SD 1.5)
+    const job0 = jobs.get(jobId);
+    const isSDXL = job0?.model === 'sdxl';
+    const MAX_POLLS = isSDXL ? 1200 : 600; // 10 min SDXL, 5 min SD1.5
     
     let polls = 0;
     
