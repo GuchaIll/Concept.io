@@ -9,16 +9,6 @@
 
 ---
 
-## Demo
-
-https://github.com/user-attachments/assets/a47a366a-2c19-47c2-9890-894ee19658cd
-
-https://github.com/user-attachments/assets/f21fbbe4-4f2b-4d51-a4ba-b58acaa52f61
-
-https://github.com/user-attachments/assets/1163ffe1-113b-41c8-9177-40b12367f8aa
-
----
-
 ## Table of Contents
 
 - [Who This Is For](#who-this-is-for)
@@ -54,6 +44,16 @@ Concept art workflows are fragmented across disconnected tools: painting applica
 A team can paint freehand, generate AI assets directly inside the scene, extract subjects with AI-assisted masking, branch and snapshot versions like Git, and sync projects to GitHub or the filesystem — without leaving the canvas.
 
 Think Figma + Photoshop + Stable Diffusion + Git, all in one canvas.
+
+---
+
+## Demo
+
+https://github.com/user-attachments/assets/1163ffe1-113b-41c8-9177-40b12367f8aa
+
+https://github.com/user-attachments/assets/a47a366a-2c19-47c2-9890-894ee19658cd
+
+https://github.com/user-attachments/assets/f21fbbe4-4f2b-4d51-a4ba-b58acaa52f61
 
 ---
 
