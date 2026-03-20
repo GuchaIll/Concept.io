@@ -24,7 +24,6 @@ https://github.com/user-attachments/assets/1163ffe1-113b-41c8-9177-40b12367f8aa
 - [Who This Is For](#who-this-is-for)
 - [What Is Concept.io?](#what-is-conceptio)
 - [Quick Start](#quick-start)
-- [Screenshots](#screenshots)
 - [Core Capabilities](#core-capabilities)
 - [System Architecture](#system-architecture)
 - [API Reference](#api-reference)
@@ -69,16 +68,6 @@ npm run dev:all              # client :5173  |  server :5000  |  diffusion :8000
 ```
 
 See [Getting Started](#getting-started) for full configuration and environment variables.
-
----
-
-## Screenshots
-
-### Canvas Workspace
-![Canvas workspace](img/Canvas.png)
-
-### Project Gallery
-![Project gallery](img/Projects.png)
 
 ---
 
