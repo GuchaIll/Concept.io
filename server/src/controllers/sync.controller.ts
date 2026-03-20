@@ -14,11 +14,13 @@
 
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
+import fs from 'fs/promises';
+import path from 'path';
 import Controller from './controller';
 import DAC from '../db/dac';
 import { encrypt } from '../services/crypto.service';
 import { syncSnapshot, syncAllEnabled } from '../services/sync.service';
-import type { ISyncTarget, GitSyncConfig, CreateSyncTargetPayload } from '../../../common/sync.interface';
+import type { ISyncTarget, GitSyncConfig, CreateSyncTargetPayload, SyncFileNode, LocalSyncConfig } from '../../../common/sync.interface';
 
 const uuidv4 = () => randomUUID();
 
@@ -34,6 +36,12 @@ export class SyncController extends Controller {
     this.triggerSync = this.triggerSync.bind(this);
     this.triggerSyncAll = this.triggerSyncAll.bind(this);
     this.getLogs = this.getLogs.bind(this);
+    this.getFiles = this.getFiles.bind(this);
+    this.deleteFile = this.deleteFile.bind(this);
+    this.linkFile = this.linkFile.bind(this);
+    this.mkdirFile = this.mkdirFile.bind(this);
+    this.renameAcrossTargets = this.renameAcrossTargets.bind(this);
+    this.moveFile = this.moveFile.bind(this);
   }
 
   public initializeRoutes() {
@@ -45,6 +53,13 @@ export class SyncController extends Controller {
     this.router.post('/:projectId/sync/targets/:targetId/sync', this.triggerSync);
     this.router.post('/:projectId/sync/sync-all', this.triggerSyncAll);
     this.router.get('/:projectId/sync/targets/:targetId/logs', this.getLogs);
+    // File browser endpoints (local targets only)
+    this.router.get('/:projectId/sync/targets/:targetId/files', this.getFiles);
+    this.router.delete('/:projectId/sync/targets/:targetId/files', this.deleteFile);
+    this.router.post('/:projectId/sync/targets/:targetId/files/link', this.linkFile);
+    this.router.post('/:projectId/sync/targets/:targetId/files/mkdir', this.mkdirFile);
+    this.router.post('/:projectId/sync/targets/:targetId/files/move', this.moveFile);
+    this.router.post('/:projectId/sync/files/rename', this.renameAcrossTargets);
   }
 
   // ── List all sync targets for a project ──────────────
@@ -174,6 +189,10 @@ export class SyncController extends Controller {
       }
 
       const log = await syncSnapshot(snapshotId, targetId);
+      if (log.status === 'failed') {
+        res.status(500).json({ success: false, error: log.message ?? 'Sync failed' });
+        return;
+      }
       res.json({ success: true, data: log });
     } catch (error: any) {
       console.error('Error triggering sync:', error);
@@ -194,6 +213,11 @@ export class SyncController extends Controller {
       }
 
       const logs = await syncAllEnabled(snapshotId);
+      const allFailed = logs.length > 0 && logs.every(l => l.status === 'failed');
+      if (allFailed) {
+        res.status(500).json({ success: false, error: logs[0]?.message ?? 'All syncs failed', data: logs });
+        return;
+      }
       res.json({ success: true, data: logs });
     } catch (error: any) {
       console.error('Error triggering sync-all:', error);
@@ -212,6 +236,241 @@ export class SyncController extends Controller {
       res.json({ success: true, data: logs });
     } catch (error: any) {
       console.error('Error getting sync logs:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // ── List files in a local sync target folder ──────────
+
+  private async getFiles(req: Request, res: Response) {
+    try {
+      const { targetId } = req.params;
+      const target = await DAC.db.getSyncTargetById(targetId);
+      if (!target) {
+        res.status(404).json({ success: false, error: 'Sync target not found' });
+        return;
+      }
+      if (target.type !== 'local') {
+        res.status(400).json({ success: false, error: 'File browser only available for local targets' });
+        return;
+      }
+      const { folderPath } = target.config as LocalSyncConfig;
+      if (!folderPath) {
+        res.status(400).json({ success: false, error: 'No folderPath configured' });
+        return;
+      }
+
+      const tree = await buildFileTree(folderPath, folderPath);
+      res.json({ success: true, data: tree });
+    } catch (error: any) {
+      console.error('Error listing files:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // ── Delete a file or folder within the sync target ────
+
+  private async deleteFile(req: Request, res: Response) {
+    try {
+      const { targetId } = req.params;
+      const { filePath } = req.body as { filePath: string };
+
+      if (!filePath) {
+        res.status(400).json({ success: false, error: 'filePath is required' });
+        return;
+      }
+
+      const target = await DAC.db.getSyncTargetById(targetId);
+      if (!target) {
+        res.status(404).json({ success: false, error: 'Sync target not found' });
+        return;
+      }
+      if (target.type !== 'local') {
+        res.status(400).json({ success: false, error: 'File deletion only available for local targets' });
+        return;
+      }
+
+      const { folderPath } = target.config as LocalSyncConfig;
+      const absPath = path.join(folderPath, filePath);
+
+      // Security: ensure the resolved path stays within the base folder
+      if (!isWithinBase(absPath, folderPath)) {
+        res.status(400).json({ success: false, error: 'Path escapes the sync target folder' });
+        return;
+      }
+
+      await fs.rm(absPath, { recursive: true, force: true });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error deleting file:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // ── Link current canvas snapshot to a folder path ─────
+
+  private async linkFile(req: Request, res: Response) {
+    try {
+      const { targetId } = req.params;
+      const { snapshotId, filePath, fileName } = req.body as {
+        snapshotId: string;
+        filePath?: string;  // Target path (directory or full file path)
+        fileName?: string;  // Custom file name (without extension)
+      };
+
+      if (!snapshotId) {
+        res.status(400).json({ success: false, error: 'snapshotId is required' });
+        return;
+      }
+
+      // Sync with optional custom path/name
+      const log = await syncSnapshot(snapshotId, targetId, undefined, {
+        targetPath: filePath,
+        fileName,
+      });
+      if (log.status === 'failed') {
+        res.status(500).json({ success: false, error: log.message ?? 'Sync failed' });
+        return;
+      }
+      res.json({ success: true, data: log });
+    } catch (error: any) {
+      console.error('Error linking file:', error);
+      const status = mapSyncErrorStatus(error);
+      res.status(status).json({ success: false, error: error.message });
+    }
+  }
+
+  // ── Create a new directory inside a local sync target ──
+
+  private async mkdirFile(req: Request, res: Response) {
+    try {
+      const { targetId } = req.params;
+      const { dirPath } = req.body as { dirPath: string };
+
+      if (!dirPath) {
+        res.status(400).json({ success: false, error: 'dirPath is required' });
+        return;
+      }
+
+      const target = await DAC.db.getSyncTargetById(targetId);
+      if (!target) {
+        res.status(404).json({ success: false, error: 'Sync target not found' });
+        return;
+      }
+      if (target.type !== 'local') {
+        res.status(400).json({ success: false, error: 'mkdir only available for local targets' });
+        return;
+      }
+
+      const { folderPath } = target.config as LocalSyncConfig;
+      const absPath = path.join(folderPath, dirPath);
+
+      if (!isWithinBase(absPath, folderPath)) {
+        res.status(400).json({ success: false, error: 'Path escapes the sync target folder' });
+        return;
+      }
+
+      await fs.mkdir(absPath, { recursive: true });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Error creating directory:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // ── Rename a file/folder across all local targets for the project ──
+
+  private async renameAcrossTargets(req: Request, res: Response) {
+    try {
+      const { projectId } = req.params;
+      const { oldPath, newName } = req.body as { oldPath: string; newName: string };
+
+      if (!oldPath || !newName) {
+        res.status(400).json({ success: false, error: 'oldPath and newName are required' });
+        return;
+      }
+
+      const targets = await DAC.db.getSyncTargetsByProject(projectId);
+      const localTargets = targets.filter(t => t.type === 'local');
+
+      const results: { targetId: string; renamed: boolean }[] = [];
+
+      for (const target of localTargets) {
+        const { folderPath } = target.config as LocalSyncConfig;
+        const absOld = path.join(folderPath, oldPath);
+
+        if (!isWithinBase(absOld, folderPath)) continue;
+
+        try {
+          await fs.access(absOld);
+          const newBase = path.join(path.dirname(absOld), newName);
+          if (!isWithinBase(newBase, folderPath)) continue;
+          await fs.rename(absOld, newBase);
+          results.push({ targetId: target.id, renamed: true });
+        } catch {
+          results.push({ targetId: target.id, renamed: false });
+        }
+      }
+
+      res.json({ success: true, data: results });
+    } catch (error: any) {
+      console.error('Error renaming across targets:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // ── Move a file or folder within a local sync target ──
+
+  private async moveFile(req: Request, res: Response) {
+    try {
+      const { targetId } = req.params;
+      const { sourcePath, destPath } = req.body as { sourcePath: string; destPath: string };
+
+      if (!sourcePath || !destPath) {
+        res.status(400).json({ success: false, error: 'sourcePath and destPath are required' });
+        return;
+      }
+
+      const target = await DAC.db.getSyncTargetById(targetId);
+      if (!target) {
+        res.status(404).json({ success: false, error: 'Sync target not found' });
+        return;
+      }
+      if (target.type !== 'local') {
+        res.status(400).json({ success: false, error: 'Move only available for local targets' });
+        return;
+      }
+
+      const { folderPath } = target.config as LocalSyncConfig;
+      const absSrc = path.join(folderPath, sourcePath);
+      const absDest = path.join(folderPath, destPath);
+
+      // Security: ensure both paths stay within the base folder
+      if (!isWithinBase(absSrc, folderPath) || !isWithinBase(absDest, folderPath)) {
+        res.status(400).json({ success: false, error: 'Path escapes the sync target folder' });
+        return;
+      }
+
+      // Check if dest is a directory — if so, move source into it
+      let finalDest = absDest;
+      try {
+        const destStat = await fs.stat(absDest);
+        if (destStat.isDirectory()) {
+          finalDest = path.join(absDest, path.basename(absSrc));
+        }
+      } catch {
+        // Dest doesn't exist, use as-is (could be a rename operation)
+      }
+
+      // Ensure parent directory of finalDest exists
+      await fs.mkdir(path.dirname(finalDest), { recursive: true });
+
+      await fs.rename(absSrc, finalDest);
+
+      const newRelPath = path.relative(folderPath, finalDest).replace(/\\/g, '/');
+      res.json({ success: true, data: { newPath: newRelPath } });
+    } catch (error: any) {
+      console.error('Error moving file:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -235,4 +494,83 @@ function mapSyncErrorStatus(error: any): number {
   if (msg.includes('not found'))  return 404;
   if (msg.includes('is disabled')) return 409;
   return 500;
+}
+
+/**
+ * Build a recursive file-tree for the given directory.
+ * `basePath` is used to compute relative paths for each node.
+ */
+async function buildFileTree(dirPath: string, basePath: string): Promise<SyncFileNode[]> {
+  let entries;
+  try {
+    entries = await fs.readdir(dirPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const nodes: SyncFileNode[] = [];
+
+  for (const entry of entries) {
+    const absEntryPath = path.join(dirPath, entry.name);
+    const relEntryPath = path.relative(basePath, absEntryPath).replace(/\\/g, '/');
+
+    if (entry.isDirectory()) {
+      const children = await buildFileTree(absEntryPath, basePath);
+
+      // Check for a metadata.json inside this directory to get the linked snapshot ID
+      let linkedSnapshotId: string | undefined;
+      try {
+        const metaRaw = await fs.readFile(path.join(absEntryPath, 'metadata.json'), 'utf-8');
+        const meta = JSON.parse(metaRaw);
+        linkedSnapshotId = meta.snapshotId;
+      } catch {
+        // No metadata.json — not a snapshot folder
+      }
+
+      let modifiedAt: number | undefined;
+      try {
+        const stat = await fs.stat(absEntryPath);
+        modifiedAt = stat.mtimeMs;
+      } catch {}
+
+      nodes.push({
+        name: entry.name,
+        path: relEntryPath,
+        type: 'folder',
+        modifiedAt,
+        linkedSnapshotId,
+        children,
+      });
+    } else if (entry.isFile()) {
+      let modifiedAt: number | undefined;
+      try {
+        const stat = await fs.stat(absEntryPath);
+        modifiedAt = stat.mtimeMs;
+      } catch {}
+
+      nodes.push({
+        name: entry.name,
+        path: relEntryPath,
+        type: 'file',
+        modifiedAt,
+      });
+    }
+  }
+
+  // Sort: folders first, then files; alphabetically within each group
+  nodes.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return nodes;
+}
+
+/**
+ * Returns true if `absPath` is strictly within `basePath` (no path traversal).
+ */
+function isWithinBase(absPath: string, basePath: string): boolean {
+  const resolved = path.resolve(absPath);
+  const resolvedBase = path.resolve(basePath);
+  return resolved.startsWith(resolvedBase + path.sep) || resolved === resolvedBase;
 }

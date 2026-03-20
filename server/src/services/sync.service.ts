@@ -11,10 +11,18 @@ import DAC from '../db/dac';
 import type { ISnapshot } from '../db/dac';
 import type { ISyncTarget, ISyncLog, SyncStatusEvent } from '../../../common/sync.interface';
 import { exportSnapshot, ExportResult } from './export.service';
-import { syncToLocal } from './sync-strategies/local.strategy';
+import { syncToLocal, LocalSyncOptions } from './sync-strategies/local.strategy';
 import { syncToGit } from './sync-strategies/git.strategy';
 
 export type SyncEventEmitter = (event: SyncStatusEvent) => void;
+
+/** Options for sync operations */
+export interface SyncOptions {
+  /** For local targets: custom target path (relative to base folder) */
+  targetPath?: string;
+  /** For local targets: custom file name (without extension) */
+  fileName?: string;
+}
 
 /**
  * Sync a snapshot to a specific target.
@@ -24,6 +32,7 @@ export async function syncSnapshot(
   snapshotId: string,
   targetId: string,
   emit?: SyncEventEmitter,
+  options?: SyncOptions,
 ): Promise<ISyncLog> {
   const db = DAC.db;
 
@@ -34,7 +43,7 @@ export async function syncSnapshot(
   const snapshot = await db.getSnapshotById(snapshotId);
   if (!snapshot) throw new Error(`Snapshot ${snapshotId} not found`);
 
-  return runSync(snapshot, target, emit);
+  return runSync(snapshot, target, emit, options);
 }
 
 /**
@@ -83,6 +92,7 @@ async function runSync(
   snapshot: ISnapshot,
   target: ISyncTarget,
   emit?: SyncEventEmitter,
+  options?: SyncOptions,
 ): Promise<ISyncLog> {
   const db = DAC.db;
 
@@ -105,7 +115,7 @@ async function runSync(
     return log;
   }
 
-  return dispatchToTarget(target, exportResult, snapshot.id, emit);
+  return dispatchToTarget(target, exportResult, snapshot.id, emit, options);
 }
 
 async function dispatchToTarget(
@@ -113,6 +123,7 @@ async function dispatchToTarget(
   exportResult: ExportResult,
   snapshotId: string,
   emit?: SyncEventEmitter,
+  options?: SyncOptions,
 ): Promise<ISyncLog> {
   const db = DAC.db;
   const startedAt = Date.now();
@@ -120,10 +131,14 @@ async function dispatchToTarget(
   emitStatus(emit, target.id, snapshotId, 'syncing');
 
   try {
-    let result: { success: boolean; error?: string; filesCommitted?: string[]; filesWritten?: string[]; commitSha?: string };
+    let result: { success: boolean; error?: string; filesCommitted?: string[]; filesWritten?: string[]; filePath?: string; commitSha?: string };
 
     if (target.type === 'local') {
-      result = await syncToLocal(target, exportResult);
+      const localOpts: LocalSyncOptions = {
+        targetPath: options?.targetPath,
+        fileName: options?.fileName,
+      };
+      result = await syncToLocal(target, exportResult, localOpts);
     } else if (target.type === 'git') {
       result = await syncToGit(target, exportResult);
     } else {

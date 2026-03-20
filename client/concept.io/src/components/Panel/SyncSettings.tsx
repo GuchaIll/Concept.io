@@ -14,7 +14,7 @@ import {
   deleteSyncTarget,
   triggerSync,
 } from '../../services/sync.service';
-import type { ISyncTarget, SyncTargetType, GitSyncConfig, LocalSyncConfig } from '../../../../common/sync.interface';
+import type { ISyncTarget, SyncTargetType, GitSyncConfig, LocalSyncConfig } from '../../../../../common/sync.interface';
 
 interface SyncSettingsProps {
   /** The snapshot to sync when the user clicks "Sync Now". */
@@ -90,7 +90,7 @@ export const SyncSettings = ({ currentSnapshotId, onClose }: SyncSettingsProps) 
   // ── Render ──────────────────────────────────────────
 
   return (
-    <div className="w-full max-w-lg mx-auto p-4 space-y-4">
+    <div className="w-full max-w-lg mx-auto p-4 space-y-4 rounded-xl" style={{ background: '#12151a' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -167,12 +167,12 @@ interface TargetCardProps {
 }
 
 const TargetCard = ({ target, isSyncing, hasSnapshot, onToggle, onDelete, onSyncNow }: TargetCardProps) => {
-  const statusColor = {
+  const statusColor = ({
     success: 'bg-emerald-500',
     failed: 'bg-red-500',
     syncing: 'bg-amber-500 animate-pulse',
     idle: 'bg-gray-500',
-  }[target.lastSyncStatus ?? 'idle'];
+  } as Record<string, string>)[target.lastSyncStatus ?? 'idle'];
 
   const icon = target.type === 'git' ? 'code' : 'folder';
   const subtitle =
