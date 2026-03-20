@@ -22,6 +22,7 @@ from ..config import (
     REMBG_AVAILABLE,
     rembg_remove,
     get_sam_model,
+    reload_sam_to_gpu,
 )
 from ..utils.image import decode_base64_image
 
@@ -175,6 +176,9 @@ def _sam_cutout(
       - Provided: SamPredictor point-prompt (most accurate when subject centre is known)
       - Omitted:  SamAutomaticMaskGenerator with heuristic subject selection
     """
+    # Ensure SAM is on GPU (may have been offloaded for SDXL)
+    reload_sam_to_gpu()
+    
     _sam, predictor, mask_generator = get_sam_model()
     h, w = image_rgb.shape[:2]
 
@@ -334,16 +338,17 @@ def _compute_background_score(
     border_margin: int = 8,
 ) -> float:
     """
-    Estimate how "background-like" a region is using four CV heuristics.
+    Estimate how "background-like" a region is using CV heuristics.
 
-    Factors:
-      1. Flatness      (0.35) — low intra-region colour variance → uniform = background.
-      2. Low texture   (0.30) — Laplacian-pyramid residual (box blur difference) is low
-                                after multi-scale smoothing → flat = background.
-      3. Border touch  (0.20) — high fraction of pixels within `border_margin` of image
-                                edge → background wraps the scene.
-      4. Corner colour (0.15) — region mean colour close to sampled corner colours
-                                → typical background tone.
+    Factors (rebalanced to avoid flagging flat-but-central subjects):
+      1. Flatness      (0.20) — low intra-region colour variance → uniform.
+         Normalised more conservatively (cap 140 instead of 100) so skin / dark
+         hair / solid clothing don't score as high.
+      2. Low texture   (0.25) — Laplacian-pyramid residual is low → flat.
+      3. Border touch  (0.30) — high fraction of pixels near image edge → wrap.
+      4. Corner colour (0.15) — region mean colour close to corner colours.
+      5. Peripherality (0.10) — centroid far from image centre → background.
+         Acts as the inverse of the subject-selection centrality heuristic.
 
     Returns a float in [0, 1] where 1.0 = almost certainly background.
     """
@@ -358,11 +363,10 @@ def _compute_background_score(
     # ── 1. Flatness: per-channel std then mean ────────────────────
     std_per_ch = pixels.std(axis=0)           # shape (3,)
     mean_std   = float(std_per_ch.mean())
-    # std of ~0 = perfectly flat; ~80 = typical noisy region; cap at 100
-    flatness = 1.0 - min(mean_std / 100.0, 1.0)
+    # Cap at 140 (was 100) — gives more headroom so skin/hair don't max out
+    flatness = 1.0 - min(mean_std / 140.0, 1.0)
 
     # ── 2. Low texture via Laplacian pyramid ──────────────────────
-    # Build 3-level pyramid: blur at r=2, 6, 14 — sum of detail levels
     detail = np.zeros((h, w), dtype=np.float32)
     prev = img_f
     for radius in (2, 6, 14):
@@ -371,10 +375,9 @@ def _compute_background_score(
         prev     = blurred
 
     region_detail  = float(detail[seg].mean())
-    # Normalise against global image mean detail (prevents bright images skewing)
     global_detail  = float(detail.mean()) + 1e-6
     rel_detail     = region_detail / global_detail
-    low_texture    = 1.0 - min(rel_detail / 3.0, 1.0)   # rel > 3× global = very textured
+    low_texture    = 1.0 - min(rel_detail / 3.0, 1.0)
 
     # ── 3. Border contact ─────────────────────────────────────────
     ys, xs = np.where(seg)
@@ -395,17 +398,24 @@ def _compute_background_score(
         img_f[-corner_h:, :corner_w ].reshape(-1, 3),
         img_f[-corner_h:, -corner_w:].reshape(-1, 3),
     ])
-    corner_mean = corners.mean(axis=0)              # (3,)
-    region_mean = pixels.mean(axis=0)               # (3,)
-    # Euclidean distance in RGB space; max possible ≈ 441 (white↔black)
+    corner_mean = corners.mean(axis=0)
+    region_mean = pixels.mean(axis=0)
     dist = float(np.linalg.norm(region_mean - corner_mean))
     corner_sim = 1.0 - min(dist / 220.0, 1.0)
 
+    # ── 5. Peripherality: centroid distance from image centre ─────
+    cx, cy = w / 2.0, h / 2.0
+    cent_x, cent_y = float(np.mean(xs)), float(np.mean(ys))
+    max_dist = math.sqrt(cx ** 2 + cy ** 2)
+    centroid_dist = math.sqrt((cent_x - cx) ** 2 + (cent_y - cy) ** 2)
+    peripherality = min(centroid_dist / max_dist, 1.0)
+
     score = (
-        flatness    * 0.35 +
-        low_texture * 0.30 +
-        border_touch * 0.20 +
-        corner_sim  * 0.15
+        flatness      * 0.20 +
+        low_texture   * 0.25 +
+        border_touch  * 0.30 +
+        corner_sim    * 0.15 +
+        peripherality * 0.10
     )
     return round(float(score), 4)
 
@@ -420,6 +430,7 @@ def _merge_small_regions(
     img_h: int,
     min_area_ratio: float = 0.02,
     min_groups: int = 2,
+    max_groups: int = 10,
 ) -> list[tuple[dict, float]]:
     """
     Merge every mask whose area_ratio < min_area_ratio into its most-adjacent
@@ -518,6 +529,35 @@ def _merge_small_regions(
             union(i, best_other)
             current_groups -= 1
 
+    # ── Cap to max_groups: greedily merge smallest adjacent groups ─
+    # If area-based merging didn't reach max_groups, continue merging
+    # the smallest remaining group into its most-adjacent neighbour.
+    while current_groups > max_groups:
+        # Compute total area per current root
+        root_areas: dict[int, float] = {}
+        for i in range(n):
+            r = find(i)
+            root_areas[r] = root_areas.get(r, 0.0) + areas[i]
+
+        smallest_root = min(root_areas, key=lambda r: root_areas[r])
+
+        best_other = -1
+        best_cnt = 0
+        for (a, b), cnt in adj.items():
+            ra, rb = find(a), find(b)
+            if ra == rb:
+                continue
+            if ra == smallest_root or rb == smallest_root:
+                other_root = rb if ra == smallest_root else ra
+                if cnt > best_cnt:
+                    best_cnt = cnt
+                    best_other = other_root
+
+        if best_other < 0:
+            break  # isolated group — cannot merge further
+        union(smallest_root, best_other)
+        current_groups -= 1
+
     # ── Rebuild merged mask dicts ─────────────────────────────────
     groups: dict[int, list[int]] = {}
     for i in range(n):
@@ -552,6 +592,90 @@ def _merge_small_regions(
         merged.append((new_m, rep_score))
 
     return merged
+
+
+def _fill_unassigned_pixels(
+    scored_masks: list[tuple[dict, float]],
+    img_w: int,
+    img_h: int,
+    max_iters: int = 50,
+) -> list[tuple[dict, float]]:
+    """
+    Ensure every pixel belongs to at least one region.
+
+    SAM does not guarantee 100 % coverage — some pixels may fall outside ALL
+    generated masks.  This function assigns those orphan pixels to their nearest
+    region via iterative morphological dilation of the label map.
+
+    The algorithm:
+      1. Build a label map where each pixel gets the index of the first mask
+         that covers it (-1 if no mask covers it).
+      2. Iteratively dilate each labelled region by one pixel ring, filling
+         only currently-unassigned (-1) neighbours, until no -1 pixels remain
+         (or ``max_iters`` is reached as a safety bound).
+      3. Write the expanded pixels back into the corresponding mask
+         segmentation arrays and update area counts.
+
+    Returns the updated scored_masks list (mutated in-place for efficiency).
+    """
+    n = len(scored_masks)
+    if n == 0:
+        return scored_masks
+
+    segs = [m["segmentation"].astype(bool) for m, _ in scored_masks]
+
+    # Build initial label map — first mask wins on overlap
+    label_map = np.full((img_h, img_w), -1, dtype=np.int16)
+    for idx in range(n - 1, -1, -1):
+        label_map[segs[idx]] = np.int16(idx)
+
+    unassigned = int((label_map == -1).sum())
+    if unassigned == 0:
+        return scored_masks
+
+    print(f"[fill-pixels] {unassigned} unassigned pixels "
+          f"({unassigned / (img_w * img_h) * 100:.1f}%) — expanding regions...")
+
+    # Iterative nearest-neighbour dilation via 4-connected shifts
+    for iteration in range(max_iters):
+        empty = label_map == -1
+        if not empty.any():
+            break
+
+        # Collect neighbour labels from 4 directions
+        candidates = np.full((img_h, img_w), -1, dtype=np.int16)
+        # up
+        valid = empty[1:, :] & (label_map[:-1, :] >= 0)
+        candidates[1:, :][valid] = label_map[:-1, :][valid]
+        # down
+        valid = empty[:-1, :] & (label_map[1:, :] >= 0)
+        mask = (candidates[:-1, :] == -1) & valid
+        candidates[:-1, :][mask] = label_map[1:, :][mask]
+        # left
+        valid = empty[:, 1:] & (label_map[:, :-1] >= 0)
+        mask = (candidates[:, 1:] == -1) & valid
+        candidates[:, 1:][mask] = label_map[:, :-1][mask]
+        # right
+        valid = empty[:, :-1] & (label_map[:, 1:] >= 0)
+        mask = (candidates[:, :-1] == -1) & valid
+        candidates[:, :-1][mask] = label_map[:, 1:][mask]
+
+        fill = (candidates >= 0) & empty
+        if not fill.any():
+            break
+        label_map[fill] = candidates[fill]
+
+    remaining = int((label_map == -1).sum())
+    print(f"[fill-pixels] Done after {iteration + 1} iters — "
+          f"{remaining} still unassigned")
+
+    # Write expanded regions back into segmentation masks
+    for idx in range(n):
+        new_seg = label_map == idx
+        scored_masks[idx][0]["segmentation"] = new_seg
+        scored_masks[idx][0]["area"] = float(new_seg.sum())
+
+    return scored_masks
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -590,6 +714,9 @@ def generate_mask_proposals(
         return [], original_size, "unavailable"
 
     try:
+        # Ensure SAM is on GPU (may have been offloaded for SDXL)
+        reload_sam_to_gpu()
+        
         _sam, _predictor, mask_generator = get_sam_model()
         print(f"[proposals] Running SAM on {w}\u00d7{h} image (max_proposals={max_proposals})...")
         t0 = time.time()
@@ -600,17 +727,20 @@ def generate_mask_proposals(
         # Score every mask
         scored = [(m, _score_auto_mask(m, w, h)) for m in raw_masks]
 
-        # ── Union-Find: merge adjacent small regions (< 2 % area) ─
-        # Run on the full scored list so small edge fragments can
-        # always find a large neighbour to absorb into.
-        # Guarantee at least 2 groups (background + subject) remain.
+        # ── Fill unassigned pixels FIRST so every pixel belongs to a region ─
+        # Must run before merging so area calculations reflect the full coverage.
+        scored = _fill_unassigned_pixels(scored, w, h)
+
+        # ── Union-Find: merge small regions then cap at 10 total ───
+        # Pass 1: absorb fragments below 2 % area into adjacent neighbours.
+        # Pass 2: greedily merge smallest remaining groups until ≤ 10 remain.
         t1 = time.time()
-        scored = _merge_small_regions(scored, w, h, min_area_ratio=0.10, min_groups=2)
-        # Re-score after merge (merged masks may have changed area/centroid)
+        scored = _merge_small_regions(scored, w, h, min_area_ratio=0.02, min_groups=2, max_groups=10)
+        # Re-score after merge (merged masks have changed area/centroid)
         scored = [(m, _score_auto_mask(m, w, h)) for m, _ in scored]
         print(
-            f"[proposals] After merge: {len(scored)} groups "
-            f"({len(raw_masks) - len(scored)} small regions absorbed) "
+            f"[proposals] After fill+merge: {len(scored)} groups "
+            f"({len(raw_masks) - len(scored)} regions absorbed) "
             f"in {time.time() - t1:.2f}s"
         )
 
@@ -676,6 +806,7 @@ def apply_mask_to_image(
     feather_radius: int = 0,
     threshold: int = 128,
     refine: bool = True,
+    refinement_mask: str | None = None,
 ) -> tuple[Image.Image, tuple[int, int]]:
     """
     Apply one or more grayscale mask PNGs (base64) to an image.
@@ -706,6 +837,18 @@ def apply_mask_to_image(
         mask_arr = np.array(mask_img)
         merged = np.maximum(merged, mask_arr)
         print(f"  [apply-mask] Mask {idx}: {int((mask_arr > 127).sum())} foreground pixels")
+
+    # ── Apply client refinement mask (brush / eraser / lasso edits) ──
+    if refinement_mask:
+        ref_img = (
+            decode_base64_image(refinement_mask)
+            .convert("L")
+            .resize((w, h), Image.NEAREST)
+        )
+        ref_arr = np.array(ref_img)
+        merged = np.minimum(merged, ref_arr)
+        print(f"  [apply-mask] Refinement mask applied: "
+              f"{int((ref_arr < 128).sum())} erased pixels")
 
     binary = (merged > 127).astype(np.uint8)
     result = _mask_to_rgba(image_np, binary)

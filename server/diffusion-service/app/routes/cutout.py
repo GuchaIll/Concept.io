@@ -89,6 +89,7 @@ async def apply_selected_masks(request: CutoutFromMaskRequest):
             feather_radius=request.feather_radius,
             threshold=request.threshold,
             refine=request.refine_mask,
+            refinement_mask=request.refinement_mask,
         )
 
         output_buffer = io.BytesIO()

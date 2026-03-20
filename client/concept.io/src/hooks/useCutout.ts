@@ -54,7 +54,7 @@ interface UseCutoutReturn {
   getProposals: (imageData: string, maxProposals?: number) => Promise<MaskProposalsResult>;
 
   // Phase 2 â€” apply selected mask(s)
-  applyMask: (imageData: string, maskData: string[], settings?: Partial<CutoutSettings>) => Promise<CutoutResult>;
+  applyMask: (imageData: string, maskData: string[], settings?: Partial<CutoutSettings>, refinementMask?: string, signal?: AbortSignal) => Promise<CutoutResult>;
 
   // Legacy one-shot
   processImage: (imageData: string, settings?: Partial<CutoutSettings>) => Promise<CutoutResult>;
@@ -132,8 +132,10 @@ export const useCutout = (): UseCutoutReturn => {
     imageData: string,
     maskData: string[],
     settings: Partial<CutoutSettings> = {},
+    refinementMask?: string,
+    signal?: AbortSignal,
   ): Promise<CutoutResult> => {
-    console.log('=== useCutout.applyMask ===', { maskCount: maskData.length });
+    console.log('=== useCutout.applyMask ===', { maskCount: maskData.length, hasRefinementMask: !!refinementMask });
     setIsProcessing(true);
     setProgress(10);
     setError(null);
@@ -151,7 +153,9 @@ export const useCutout = (): UseCutoutReturn => {
           featherRadius: s.featherRadius,
           threshold: s.threshold,
           refineMask: s.refineMask,
+          ...(refinementMask ? { refinementMask } : {}),
         }),
+        ...(signal ? { signal } : {}),
       });
 
       setProgress(90);
@@ -168,8 +172,11 @@ export const useCutout = (): UseCutoutReturn => {
       setResult(data);
       if (!data.success) setError(data.error || 'Mask apply failed');
       return data;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
+    } catch (err) {      if (err instanceof Error && err.name === 'AbortError') {
+        const r: CutoutResult = { success: false, error: 'Mask apply cancelled' };
+        setResult(r);
+        return r;
+      }      const msg = err instanceof Error ? err.message : 'Unknown error';
       setError(msg);
       const r: CutoutResult = { success: false, error: msg };
       setResult(r);

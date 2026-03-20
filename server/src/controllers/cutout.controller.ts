@@ -63,6 +63,7 @@ interface CutoutFromMaskRequest {
   featherRadius?: number;
   threshold?: number;
   refineMask?: boolean;
+  refinementMask?: string;    // base64 grayscale PNG from client brush/eraser/lasso
 }
 
 // Python API uses snake_case â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -189,6 +190,9 @@ export class CutoutController extends Controller {
   // â”€â”€ POST /api/cutout/apply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   private async applySelectedMasks(req: Request, res: Response): Promise<void> {
+    // Early-exit if the client already disconnected (e.g. debounce overlap)
+    if (req.socket.destroyed) return;
+
     try {
       const {
         imageData,
@@ -196,6 +200,7 @@ export class CutoutController extends Controller {
         featherRadius = 0,
         threshold = 128,
         refineMask = true,
+        refinementMask,
       } = req.body as CutoutFromMaskRequest;
 
       if (!imageData || !maskData?.length) {
@@ -220,6 +225,7 @@ export class CutoutController extends Controller {
           feather_radius: featherRadius,
           threshold,
           refine_mask: refineMask,
+          ...(refinementMask ? { refinement_mask: refinementMask } : {}),
         }),
       });
 
@@ -246,8 +252,11 @@ export class CutoutController extends Controller {
       });
 
       res.json(result);
-    } catch (error) {
-      console.error('[cutout/apply] Controller error:', error);
+    } catch (error) {      // Client disconnected mid-request — expected during rapid selection changes
+      if (req.socket.destroyed || (error instanceof Error && error.message.includes('aborted'))) {
+        console.log('[cutout/apply] Client disconnected — skipping response');
+        return;
+      }      console.error('[cutout/apply] Controller error:', error);
       res.status(500).json({
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
