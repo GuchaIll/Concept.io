@@ -178,10 +178,11 @@ export class InMemoryDatabase implements IDatabase {
                     maxDepth
                 );
                 if (resolvedLayer) {
-                    // Keep current metadata but use resolved objects
+                    // Keep current metadata but use resolved objects and rasterData
                     resolvedLayers.push({
                         ...layer,
                         objects: resolvedLayer.objects,
+                        rasterData: resolvedLayer.rasterData,
                         snapshotType: 'full',
                         referenceSnapshotId: undefined,
                     });

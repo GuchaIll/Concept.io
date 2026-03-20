@@ -412,6 +412,7 @@ export class PostgresDatabase implements IDatabase {
                     resolvedLayers.push({
                         ...layer,
                         objects: resolvedLayer.objects,
+                        rasterData: resolvedLayer.rasterData,
                         snapshotType: 'full',
                         referenceSnapshotId: undefined,
                     });

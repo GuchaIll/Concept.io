@@ -83,6 +83,15 @@ class App {
             this.app.use(controller.path, controller.router);
             console.log(`⚡️[Server]: Controller ${controller.path} initialized.`);
         });
+
+        // Gracefully swallow "request aborted" from body-parser when clients disconnect
+        this.app.use((err: any, _req: any, res: any, next: any) => {
+            if (err.type === 'request.aborted') {
+                console.log(`[body-parser] Client disconnected mid-upload — ignored`);
+                return; // don't send a response, socket is already dead
+            }
+            next(err);
+        });
     }
 
     public async listen(): Promise<HttpServer>{
