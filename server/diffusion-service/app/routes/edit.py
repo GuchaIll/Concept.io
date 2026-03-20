@@ -187,23 +187,30 @@ def _run_outpaint(req: EditRequest) -> Image.Image:
 
 
 def _run_controlnet(req: EditRequest) -> Image.Image:
-    from pipeines.controlnet import run_controlnet, extract_depth, extract_pose
+    from pipeines.controlnet import (
+        run_controlnet, extract_depth, extract_pose, extract_canny,
+        ControlType,
+    )
 
     src = _b64_to_pil(req.image_data)
 
-    # Auto-extract the appropriate conditioning map from the source image
-    if req.controlnet_type == 1:       # depth
+    # Auto-extract the conditioning map appropriate for the requested type.
+    # Tile and soft-edge use the source image directly (no preprocessing).
+    ct = req.controlnet_type
+    if ct == ControlType.DEPTH:
         control_img = extract_depth(src)
-    elif req.controlnet_type == 0:     # pose
+    elif ct == ControlType.POSE:
         control_img = extract_pose(src)
+    elif ct == ControlType.CANNY:
+        control_img = extract_canny(src)
     else:
-        control_img = src              # pass-through for canny/tile/etc.
+        control_img = src  # tile, soft-edge: pass source image directly
 
     return run_controlnet(
         control_image=control_img,
         prompt=req.prompt,
         negative_prompt=req.negative_prompt,
-        control_type=req.controlnet_type,
+        control_type=ct,
         controlnet_scale=req.controlnet_scale,
         steps=req.steps,
         guidance_scale=req.guidance_scale,

@@ -17,6 +17,18 @@ class ModelType(str, Enum):
     FLUX = "flux"
 
 
+class AssetType(str, Enum):
+    CHARACTER = "character"
+    ENVIRONMENT = "environment"
+    WEAPON = "weapon"
+    ITEM = "item"
+    ICON = "icon"
+    TEXTURE = "texture"
+    UI_ELEMENT = "ui_element"
+    BACKGROUND = "background"
+    FOREGROUND = "foreground"
+
+
 class GenerationStatus(str, Enum):
     PENDING = "pending"
     LOADING_MODEL = "loading_model"
@@ -30,16 +42,23 @@ class GenerationStatus(str, Enum):
 
 class GenerationRequest(BaseModel):
     prompt: str
-    negative_prompt: Optional[str] = (
-        "blurry, bad quality, distorted, ugly, deformed, "
-        "low resolution, artifacts, noise, watermark, text"
-    )
-    width: int = 768
-    height: int = 768
+    # When None the prompt compiler builds model-appropriate negatives automatically.
+    negative_prompt: Optional[str] = None
+    width: int = 1024
+    height: int = 1024
     steps: int = 30
-    guidance_scale: float = 7.5
+    # 5.0 is the recommended starting point for SDXL — 7.5 (SD 1.5 default)
+    # causes face oversaturation and anatomy collapse at SDXL's stronger CFG scale.
+    guidance_scale: float = 5.0
     model: ModelType = ModelType.SD15
     seed: Optional[int] = None
+    # When True, runs a second SDXL Refiner pass over the last 20% of steps.
+    # Significantly improves faces and hair at the cost of ~35% more inference time.
+    # Only applies when model=sdxl.
+    use_refiner: bool = False
+    # Asset type hint from the client (character, environment, weapon, …).
+    # When None the compiler auto-detects from prompt keywords.
+    asset_type: Optional[AssetType] = None
 
     @field_validator("width", "height")
     @classmethod
@@ -146,6 +165,7 @@ class CutoutFromMaskRequest(BaseModel):
     feather_radius: int = 0
     threshold: int = 128
     refine_mask: bool = True
+    refinement_mask: Optional[str] = None  # base64 grayscale PNG from client brush/eraser/lasso
 
 class EditMode(str, Enum):
     INSTRUCTION = "instruction"   # CosXL-Edit text-instruction img2img
@@ -159,14 +179,16 @@ class EditRequest(BaseModel):
     image_data: str                             # base64 source image
     prompt: str
     negative_prompt: str = (
-        "blurry, bad quality, distorted, artifacts, watermark"
+        "blurry, bad quality, distorted, artifacts, watermark, "
+        "bad anatomy, deformed iris, deformed pupils, mutated hands, "
+        "poorly drawn face, mutation, disfigured, extra limb, missing limb"
     )
     mode: EditMode = EditMode.INSTRUCTION
     mask_data: Optional[str] = None             # base64 mask — required for inpaint mode
     reference_image_data: Optional[str] = None  # base64 style/IP-Adapter reference
     strength: float = 0.75                      # img2img / inpaint denoising strength
     steps: int = 30
-    guidance_scale: float = 7.5
+    guidance_scale: float = 10.0
     # ControlNet options
     controlnet_type: int = 1          # 0=pose 1=depth 2=soft-edge 3=canny 4=tile …
     controlnet_scale: float = 0.8

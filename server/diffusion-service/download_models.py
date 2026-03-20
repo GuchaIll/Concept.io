@@ -44,16 +44,30 @@ MODELS_DIR = SCRIPT_DIR / "models"
 
 MODELS: dict[str, dict[str, Any]] = {
     # ── Local model weights (saved in models/) ──────────────────
-    "controlnet": {
-        "description": "ControlNet-Union-SDXL – all-in-one ControlNet for SDXL (~2.4 GB)",
-        "type": "hf_snapshot",
-        "repo_id": "xinsir/controlnet-union-sdxl-1.0",
-        "local_dir": MODELS_DIR / "controlnet-union-sdxl",
-        "allow_patterns": [
-            "config.json",
-            "diffusion_pytorch_model.safetensors",
-        ],
-        "verify_file": MODELS_DIR / "controlnet-union-sdxl" / "diffusion_pytorch_model.safetensors",
+    "controlnet-depth": {
+        "description": "ControlNet Depth SDXL (distilled) – depth-map conditioning (~315 MB)",
+        "type": "hf_prefetch",
+        "repo_id": "diffusers/controlnet-depth-sdxl-1.0-small",
+    },
+    "controlnet-canny": {
+        "description": "ControlNet Canny SDXL – edge-map conditioning (~315 MB)",
+        "type": "hf_prefetch",
+        "repo_id": "diffusers/controlnet-canny-sdxl-1.0",
+    },
+    "controlnet-pose": {
+        "description": "ControlNet OpenPose SDXL – pose skeleton conditioning (~700 MB)",
+        "type": "hf_prefetch",
+        "repo_id": "xinsir/controlnet-openpose-sdxl-1.0",
+    },
+    "controlnet-tile": {
+        "description": "ControlNet Tile SDXL – tile/upscale conditioning (~700 MB)",
+        "type": "hf_prefetch",
+        "repo_id": "xinsir/controlnet-tile-sdxl-1.0",
+    },
+    "controlnet-softedge": {
+        "description": "ControlNet SoftEdge SDXL – soft-edge/sketch conditioning (~700 MB)",
+        "type": "hf_prefetch",
+        "repo_id": "SargeZT/controlnet-sd-xl-1.0-softedge-dexined",
     },
     "cosxl": {
         "description": "CosXL-Edit UNet weights for instruction-based image editing (~5.1 GB)",
@@ -89,6 +103,11 @@ MODELS: dict[str, dict[str, Any]] = {
         "local_path": MODELS_DIR / "pixel-art-xl-v1.1.safetensors",
     },
     # ── HuggingFace-cached models (downloaded to ~/.cache/huggingface/) ─
+    "vae": {
+        "description": "SDXL VAE fp16-fix – prevents fp16 overflow colour streaks (~335 MB, HF cache)",
+        "type": "hf_prefetch",
+        "repo_id": "madebyollin/sdxl-vae-fp16-fix",
+    },
     "sdxl-base": {
         "description": "Stable Diffusion XL Base 1.0 – main generation backbone (~6.9 GB, HF cache)",
         "type": "hf_prefetch",
@@ -107,9 +126,9 @@ MODELS: dict[str, dict[str, Any]] = {
 }
 
 # Models that live in models/ (not HF cache) — downloaded first
-LOCAL_MODELS = ["controlnet", "cosxl", "ip-adapter", "sam", "pixel-art-lora"]
+LOCAL_MODELS = ["cosxl", "ip-adapter", "sam", "pixel-art-lora"]
 # Models that get prefetched into HF cache
-CACHE_MODELS = ["sdxl-base", "sd15", "annotators"]
+CACHE_MODELS = ["controlnet-depth", "controlnet-canny", "controlnet-pose", "controlnet-tile", "controlnet-softedge", "vae", "sdxl-base", "sd15", "annotators"]
 
 # ────────────────────────────────────────────────────────────────
 # Helpers
@@ -275,7 +294,14 @@ def prefetch_hf_repo(spec: dict, force: bool = False) -> bool:
     try:
         snapshot_download(
             repo_id=repo_id,
-            ignore_patterns=["*.md", "*.txt", ".gitattributes", "*.png", "*.jpg", "*.webp"],
+            # Exclude documentation, images, and — critically — the full SDXL UNet
+            # binaries that some ControlNet repos bundle alongside their own weights.
+            # These UNets are never used by the diffusers pipeline (it loads the
+            # ControlNet safetensors directly); the .bin files can be 2.5–5 GB each.
+            ignore_patterns=[
+                "*.md", "*.txt", ".gitattributes", "*.png", "*.jpg", "*.webp",
+                "diffusion_pytorch_model*.bin",   # bundled full SDXL UNet (2.5–5 GB)
+            ],
         )
         print(f"  {_green('✓')} Cached")
         return True
