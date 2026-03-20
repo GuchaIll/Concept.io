@@ -17,8 +17,8 @@ def run_inpaint(
     prompt: str,
     negative_prompt: str = "",
     strength: float = 0.99,
-    steps: int = 20,
-    guidance_scale: float = 7.5,
+    steps: int = 30,
+    guidance_scale: float = 12.0,
     seed: int | None = None,
 ) -> Image.Image:
     """
@@ -67,9 +67,16 @@ def run_inpaint(
 
     generator = None
     if seed is not None:
-        generator = torch.Generator(device=pipe.device).manual_seed(seed)
+        generator = torch.Generator(device="cuda").manual_seed(seed)
 
-    print(f"[inpaint]  starting diffusion ({steps} steps)…")
+    # SDXL micro-conditioning: original_size and target_size tell the model
+    # the actual resolution the image was trained/cropped at.  Without these,
+    # SDXL's internal CLIP conditioning is misaligned with the latent
+    # resolution, causing the model to prioritise structural preservation
+    # over prompt adherence (e.g. hair shape stays but color won't change).
+    size = (image.size[0], image.size[1])
+
+    print(f"[inpaint]  starting diffusion ({steps} steps, guidance={guidance_scale})…")
     t_diff = _time.time()
     result = pipe(
         prompt=prompt,
@@ -80,6 +87,9 @@ def run_inpaint(
         num_inference_steps=steps,
         guidance_scale=guidance_scale,
         generator=generator,
+        original_size=size,
+        target_size=size,
+        crops_coords_top_left=(0, 0),
     )
     t_done = _time.time()
     print(f"[inpaint]  diffusion finished in {t_done - t_diff:.1f}s")

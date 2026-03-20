@@ -10,7 +10,7 @@ import type {
 } from '../types/version.interface';
 import type { Layer } from '../hooks/Layer';
 import { useSession } from './SessionContext';
-import type { SyncStatus, SyncStatusEvent } from '../../../common/sync.interface';
+import type { SyncStatus, SyncStatusEvent } from '../../../../common/sync.interface';
 
 // API base URL for REST endpoints
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -92,6 +92,9 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
   const canvasRef = useRef<fabric.Canvas | null>(null);
   const layersRef = useRef<Layer[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
+  // State mirror of socketRef — triggers re-renders so the listener effect re-runs
+  // when the socket changes (e.g. navigating between canvas ↔ timeline).
+  const [socketInstance, setSocketInstance] = useState<WebSocket | null>(null);
   const initialized = useRef(false);
   const socketListenersAttached = useRef(false);
 
@@ -109,6 +112,7 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
   const setSocket = useCallback((socket: WebSocket | null) => {
     console.log('VersionContext: setSocket called', socket ? `readyState=${socket.readyState}` : 'with null');
     socketRef.current = socket;
+    setSocketInstance(socket);  // trigger effect re-run
   }, []);
 
   // Helper to check if a snapshot has actual object data
@@ -125,19 +129,19 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
     });
   };
 
-  // Generate thumbnail from canvas - captures all visible layers
+  // Generate thumbnail from canvas - captures all visible layers at full display resolution
   const generateThumbnail = useCallback((): string => {
     const canvas = canvasRef.current;
     if (!canvas) {
       console.warn('generateThumbnail: No canvas available');
       return '';
     }
-    
+
     try {
       const thumbnail = canvas.toDataURL({
         format: 'jpeg',
-        quality: 0.7,
-        multiplier: 0.25,
+        quality: 0.9,
+        multiplier: 1,
       });
       console.log('Thumbnail generated, length:', thumbnail.length);
       return thumbnail;
@@ -177,7 +181,7 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
       
       console.log(`Layer "${layer.name}" (${layer.id}): ${layerObjects.length} objects`);
       
-      const serializedObjects = layerObjects.map(obj => obj.toJSON(['layerId', 'id', 'baseOpacity']));
+      const serializedObjects = layerObjects.map(obj => (obj as any).toJSON(['layerId', 'id', 'baseOpacity']));
 
       return {
         layerId: layer.id,
@@ -192,6 +196,37 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
         zIndex: layers.length - 1 - index,
       };
     });
+  }, []);
+
+  // Rasterize each serialized layer to a JPEG data-URL using an off-screen
+  // fabric.StaticCanvas.  This captures path/rect/text strokes as well as
+  // image objects so the server-side export has full per-layer pixel data
+  // without needing a headless browser.
+  const rasterizeLayers = useCallback(async (rawLayers: ILayerSnapshot[]): Promise<ILayerSnapshot[]> => {
+    const canvas = canvasRef.current;
+    if (!canvas) return rawLayers;
+
+    const w = canvas.width ?? 1920;
+    const h = canvas.height ?? 1080;
+
+    return Promise.all(rawLayers.map(async (ls) => {
+      try {
+        const objects: any[] = JSON.parse(ls.objects || '[]');
+        if (objects.length === 0) return ls;
+
+        const tempCanvas = new fabric.StaticCanvas(undefined as any, { width: w, height: h });
+        const enlivened = await (fabric.util.enlivenObjects(objects) as Promise<fabric.FabricObject[]>);
+        enlivened.forEach(obj => tempCanvas.add(obj));
+        tempCanvas.renderAll();
+
+        const rasterData = tempCanvas.toDataURL({ format: 'jpeg', quality: 0.85, multiplier: 1 });
+        tempCanvas.dispose();
+
+        return { ...ls, rasterData };
+      } catch {
+        return ls; // keep raw layer if rasterization fails
+      }
+    }));
   }, []);
 
   // Send message via WebSocket
@@ -347,7 +382,7 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
       socket.removeEventListener('message', handleSocketMessage);
       socketListenersAttached.current = false;
     };
-  }, [socketRef.current, handleSocketMessage, sendSocketMessage]);
+  }, [socketInstance, handleSocketMessage, sendSocketMessage]);
 
   // Fetch initial data via REST API (fallback)
   useEffect(() => {
@@ -407,145 +442,140 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
 
     setState(prev => ({ ...prev, isLoading: true }));
 
-    try {
-      let snapshotLayers: ILayerSnapshot[] = [];
-      let snapshotThumbnail: string = '';
-      let sourceSnapshotId: string | undefined;
+    // Run async internally (rasterization requires Promises) — fire-and-forget.
+    // State is updated from within the async closure; callers should rely on
+    // context state rather than the return value.
+    (async () => {
+      try {
+        let snapshotLayers: ILayerSnapshot[] = [];
+        let snapshotThumbnail: string = '';
+        let sourceSnapshotId: string | undefined;
 
-      // Check if canvas exists AND has actual objects
-      // If canvas is empty (e.g., on Timeline page), we should copy from existing snapshot
-      const canvasHasObjects = canvasRef.current && canvasRef.current.getObjects().length > 0;
+        const canvasHasObjects = canvasRef.current && canvasRef.current.getObjects().length > 0;
 
-      if (canvasHasObjects) {
-        snapshotLayers = serializeLayers();
-        snapshotThumbnail = generateThumbnail();
-        sourceSnapshotId = state.currentSnapshotId || currentBranch.headSnapshotId || undefined;
-        console.log('Creating snapshot from canvas - layers:', snapshotLayers.length, 'thumbnail length:', snapshotThumbnail.length);
-      } else {
-        // If no canvas (e.g., on Timeline page), copy from current/head snapshot
-        console.log('No canvas, looking for snapshot to copy from:', {
-          currentSnapshotId: state.currentSnapshotId,
-          headSnapshotId: currentBranch.headSnapshotId,
-          totalSnapshots: state.snapshots.length,
-          allSnapshotNames: state.snapshots.map(s => s.name),
-        });
-        
-        // Find the best snapshot to copy from - prefer one with actual data
-        let sourceSnapshot = state.snapshots.find(s => s.id === state.currentSnapshotId);
-        
-        // If current snapshot doesn't have data, try head snapshot
-        if (!sourceSnapshot || !hasSnapshotData(sourceSnapshot)) {
-          sourceSnapshot = state.snapshots.find(s => s.id === currentBranch.headSnapshotId);
-        }
-        
-        // If still no data, find ANY snapshot on this branch with data (prefer "Current")
-        if (!sourceSnapshot || !hasSnapshotData(sourceSnapshot)) {
-          const branchSnapshots = state.snapshots
-            .filter(s => s.branchId === currentBranch.id)
-            .sort((a, b) => b.createdAt - a.createdAt); // Most recent first
-          
-          // Prefer "Current" snapshot
-          sourceSnapshot = branchSnapshots.find(s => s.name === 'Current' && hasSnapshotData(s))
-            || branchSnapshots.find(s => hasSnapshotData(s));
-        }
-        
-        if (sourceSnapshot && hasSnapshotData(sourceSnapshot)) {
-          // Deep copy the layers to avoid reference issues
-          snapshotLayers = sourceSnapshot.layers.map(l => ({ ...l }));
-          snapshotThumbnail = sourceSnapshot.thumbnail;
-          sourceSnapshotId = sourceSnapshot.id;
-          
-          // Log detailed layer info
-          console.log('Copying from snapshot:', sourceSnapshot.name, {
-            sourceSnapshotId,
-            layersCount: snapshotLayers.length,
-            thumbnailLength: snapshotThumbnail?.length || 0,
-            layers: snapshotLayers.map(l => ({
-              name: l.name,
-              objectsLength: l.objects?.length || 0,
-              objectsPreview: l.objects?.substring(0, 100),
-            })),
-          });
+        if (canvasHasObjects) {
+          const rawLayers = serializeLayers();
+          snapshotLayers = await rasterizeLayers(rawLayers);
+          snapshotThumbnail = generateThumbnail();
+          sourceSnapshotId = state.currentSnapshotId || currentBranch.headSnapshotId || undefined;
+          console.log('Creating snapshot from canvas - layers:', snapshotLayers.length, 'thumbnail length:', snapshotThumbnail.length);
         } else {
-          console.warn('No canvas and no snapshot with data to copy from');
-          console.log('Available snapshots:', state.snapshots.map(s => ({
-            name: s.name,
-            id: s.id.substring(0, 8),
-            hasData: hasSnapshotData(s),
-            layerObjectsLengths: s.layers?.map(l => l.objects?.length || 0),
-          })));
+          // If no canvas (e.g., on Timeline page), copy from current/head snapshot
+          console.log('No canvas, looking for snapshot to copy from:', {
+            currentSnapshotId: state.currentSnapshotId,
+            headSnapshotId: currentBranch.headSnapshotId,
+            totalSnapshots: state.snapshots.length,
+            allSnapshotNames: state.snapshots.map(s => s.name),
+          });
+
+          let sourceSnapshot = state.snapshots.find(s => s.id === state.currentSnapshotId);
+
+          if (!sourceSnapshot || !hasSnapshotData(sourceSnapshot)) {
+            sourceSnapshot = state.snapshots.find(s => s.id === currentBranch.headSnapshotId);
+          }
+
+          if (!sourceSnapshot || !hasSnapshotData(sourceSnapshot)) {
+            const branchSnapshots = state.snapshots
+              .filter(s => s.branchId === currentBranch.id)
+              .sort((a, b) => b.createdAt - a.createdAt);
+
+            sourceSnapshot = branchSnapshots.find(s => s.name === 'Current' && hasSnapshotData(s))
+              || branchSnapshots.find(s => hasSnapshotData(s));
+          }
+
+          if (sourceSnapshot && hasSnapshotData(sourceSnapshot)) {
+            snapshotLayers = sourceSnapshot.layers.map(l => ({ ...l }));
+            snapshotThumbnail = sourceSnapshot.thumbnail;
+            sourceSnapshotId = sourceSnapshot.id;
+
+            console.log('Copying from snapshot:', sourceSnapshot.name, {
+              sourceSnapshotId,
+              layersCount: snapshotLayers.length,
+              thumbnailLength: snapshotThumbnail?.length || 0,
+              layers: snapshotLayers.map(l => ({
+                name: l.name,
+                objectsLength: l.objects?.length || 0,
+                objectsPreview: l.objects?.substring(0, 100),
+              })),
+            });
+          } else {
+            console.warn('No canvas and no snapshot with data to copy from');
+            console.log('Available snapshots:', state.snapshots.map(s => ({
+              name: s.name,
+              id: s.id.substring(0, 8),
+              hasData: hasSnapshotData(s),
+              layerObjectsLengths: s.layers?.map(l => l.objects?.length || 0),
+            })));
+          }
         }
-      }
 
-      const sent = sendSocketMessage('version:snapshot:create', {
-        name,
-        description,
-        layers: snapshotLayers,
-        thumbnail: snapshotThumbnail,
-        branchId: state.currentBranchId,
-        sourceSnapshotId,
-      });
-
-      if (!sent) {
-        // Local fallback
-        const snapshot: ISnapshot = {
-          id: uuidv4(),
-          projectId,
-          branchId: state.currentBranchId,
+        const sent = sendSocketMessage('version:snapshot:create', {
           name,
           description,
           layers: snapshotLayers,
           thumbnail: snapshotThumbnail,
-          createdBy: userId,
-          createdAt: Date.now(),
-          parentSnapshotId: currentBranch.headSnapshotId || undefined,
-        };
-
-        setState(prev => {
-          // Check if updating existing "Current"
-          const existingCurrentIndex = prev.snapshots.findIndex(
-            s => s.name === 'Current' && s.branchId === state.currentBranchId
-          );
-          
-          let newSnapshots;
-          if (name === 'Current' && existingCurrentIndex >= 0) {
-            newSnapshots = [...prev.snapshots];
-            newSnapshots[existingCurrentIndex] = snapshot;
-          } else {
-            newSnapshots = [...prev.snapshots, snapshot];
-          }
-
-          const updatedBranches = prev.branches.map(branch =>
-            branch.id === state.currentBranchId
-              ? { ...branch, headSnapshotId: snapshot.id }
-              : branch
-          );
-
-          return {
-            ...prev,
-            snapshots: newSnapshots,
-            branches: updatedBranches,
-            currentSnapshotId: snapshot.id,
-            isLoading: false,
-            error: null,
-          };
+          branchId: state.currentBranchId,
+          sourceSnapshotId,
         });
 
-        return snapshot;
-      }
+        if (!sent) {
+          // Local fallback when WebSocket is unavailable
+          const snapshot: ISnapshot = {
+            id: uuidv4(),
+            projectId,
+            branchId: state.currentBranchId,
+            name,
+            description,
+            layers: snapshotLayers,
+            thumbnail: snapshotThumbnail,
+            createdBy: userId,
+            createdAt: Date.now(),
+            parentSnapshotId: currentBranch.headSnapshotId || undefined,
+          };
 
-      console.log('Snapshot creation request sent:', name);
-      return null;
-    } catch (error) {
-      console.error('Failed to create snapshot:', error);
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: 'Failed to create snapshot',
-      }));
-      return null;
-    }
-  }, [state.branches, state.currentBranchId, state.snapshots, state.currentSnapshotId, projectId, userId, serializeLayers, generateThumbnail, sendSocketMessage]);
+          setState(prev => {
+            const existingCurrentIndex = prev.snapshots.findIndex(
+              s => s.name === 'Current' && s.branchId === state.currentBranchId
+            );
+
+            let newSnapshots;
+            if (name === 'Current' && existingCurrentIndex >= 0) {
+              newSnapshots = [...prev.snapshots];
+              newSnapshots[existingCurrentIndex] = snapshot;
+            } else {
+              newSnapshots = [...prev.snapshots, snapshot];
+            }
+
+            const updatedBranches = prev.branches.map(branch =>
+              branch.id === state.currentBranchId
+                ? { ...branch, headSnapshotId: snapshot.id }
+                : branch
+            );
+
+            return {
+              ...prev,
+              snapshots: newSnapshots,
+              branches: updatedBranches,
+              currentSnapshotId: snapshot.id,
+              isLoading: false,
+              error: null,
+            };
+          });
+        } else {
+          console.log('Snapshot creation request sent:', name);
+        }
+      } catch (error) {
+        console.error('Failed to create snapshot:', error);
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Failed to create snapshot',
+        }));
+      }
+    })();
+
+    return null;
+  }, [state.branches, state.currentBranchId, state.snapshots, state.currentSnapshotId, projectId, userId, serializeLayers, rasterizeLayers, generateThumbnail, sendSocketMessage]);
 
   // Update or create "Current" snapshot (for auto-save)
   const updateCurrentSnapshot = useCallback(() => {
@@ -590,7 +620,7 @@ export const VersionProvider = ({ children }: VersionProviderProps) => {
           const objects = JSON.parse(layerSnapshot.objects || '[]');
           
           objects.forEach((objData: any) => {
-            fabric.util.enlivenObjects([objData]).then((enlivenedObjects) => {
+            (fabric.util.enlivenObjects([objData]) as Promise<fabric.FabricObject[]>).then((enlivenedObjects) => {
               enlivenedObjects.forEach((obj: fabric.FabricObject) => {
                 obj.layerId = layerSnapshot.layerId;
                 if (!layerSnapshot.visible) {

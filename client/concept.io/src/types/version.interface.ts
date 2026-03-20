@@ -48,9 +48,14 @@ export interface ILayerSnapshot {
   layerId: string;
   name: string;
   type?: string;
+  snapshotType?: string;
   objects: string;  // Serialized fabric objects JSON
   visible: boolean;
   opacity: number;
   blendMode: string;
   zIndex: number;
+  /** JPEG data-URL of layer rasterized at display resolution.
+   *  Populated client-side before sending a snapshot; used server-side
+   *  for per-layer PNG export without requiring a headless browser. */
+  rasterData?: string;
 }

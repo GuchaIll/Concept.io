@@ -49,13 +49,26 @@ export const useCanvas = (config?: CanvasConfig) => {
     }
   });
 
-  // When a canvas image object (asset) is selected, sample its average color
-  // and set it as the brush color so the color picker reflects the asset.
+  // Stable ref so the selection handler always sees the current tool without
+  // re-registering canvas event listeners on every tool change.
+  const activeToolRef = useRef(toolState.activeToolId);
+  useEffect(() => {
+    activeToolRef.current = toolState.activeToolId;
+  }, [toolState.activeToolId]);
+
+  // When the user explicitly selects a canvas image with the select tool,
+  // sample its average colour and set it as the active brush colour.
+  // Gated on the select tool so that programmatic setActiveObject calls
+  // (e.g. from addAssetLayer) never clobber the current brush colour.
   useEffect(() => {
     if (!canvas) return;
 
     const sampleImageColor = (obj: fabric.FabricObject) => {
       if (obj.type !== 'image') return;
+      // Only sample when the user is actively using the select tool —
+      // prevents addAssetLayer's programmatic setActiveObject from
+      // replacing the brush colour with the image's average colour.
+      if (activeToolRef.current !== 'select') return;
       try {
         const imgEl = (obj as fabric.FabricImage).getElement() as HTMLImageElement | HTMLCanvasElement | HTMLVideoElement;
         const tmp = document.createElement('canvas');
@@ -67,7 +80,6 @@ export const useCanvas = (config?: CanvasConfig) => {
         const data = ctx.getImageData(0, 0, 16, 16).data;
         let r = 0, g = 0, b = 0, count = 0;
         for (let i = 0; i < data.length; i += 4) {
-          // Skip fully-transparent pixels (alpha < 16)
           if (data[i + 3] < 16) continue;
           r += data[i]; g += data[i + 1]; b += data[i + 2];
           count++;
@@ -143,26 +155,26 @@ export const useCanvas = (config?: CanvasConfig) => {
   // Handle mouse wheel zoom - like Procreate, zoom allows canvas to expand under/beyond UI
   const handleMouseWheel = useCallback((opt: any) => {
     if (!canvas) return;
-    
+
     const e = opt.e as WheelEvent;
-    const delta = e.deltaY;
-    let zoom = canvas.getZoom();
-    
-    // Zoom speed factor - smoother zoom
-    const zoomFactor = 0.998 ** delta;
-    zoom *= zoomFactor;
-    
-    // Clamp zoom level
-    if (zoom > MAX_ZOOM) zoom = MAX_ZOOM;
-    if (zoom < MIN_ZOOM) zoom = MIN_ZOOM;
-    
-    // Zoom to mouse pointer position (like Procreate/Photoshop)
-    const pointer = canvas.getScenePoint(e);
+
+    // Normalise deltaY: trackpads send tiny floats, mice send ~100/notch.
+    // Using a linear scale avoids the exponential drift of `0.998 ** delta`.
+    const ZOOM_SPEED = 0.0008;
+    const rawFactor = 1 - e.deltaY * ZOOM_SPEED;
+    const clampedFactor = Math.max(0.8, Math.min(1.25, rawFactor)); // cap per-event step
+    const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, canvas.getZoom() * clampedFactor));
+
+    // zoomToPoint expects canvas-element pixel coords, NOT scene coords.
+    // getScenePoint() applies the inverse viewport transform, giving the wrong
+    // pivot when the canvas is panned or already zoomed.
+    const el = canvas.getElement() as HTMLCanvasElement;
+    const rect = el.getBoundingClientRect();
+    const pointer = new fabric.Point(e.clientX - rect.left, e.clientY - rect.top);
+
     canvas.zoomToPoint(pointer, zoom);
-    
     setZoomLevel(zoom);
-    
-    // Prevent page scroll
+
     e.preventDefault();
     e.stopPropagation();
   }, [canvas]);
@@ -238,12 +250,28 @@ export const useCanvas = (config?: CanvasConfig) => {
     setZoomLevel(zoom);
   }, [canvas]);
 
+  // Compute the zoom that fits the canvas inside the available viewport area.
+  // Called on init and on reset so the user always sees the whole canvas.
+  const fitToView = useCallback((c: fabric.Canvas) => {
+    const marginLeft = 90, marginRight = 300, marginTop = 80, marginBottom = 100;
+    const availW = window.innerWidth  - marginLeft - marginRight - 40;
+    const availH = window.innerHeight - marginTop  - marginBottom - 40;
+    const fitZoom = Math.min(
+      availW / (c.width  ?? availW),
+      availH / (c.height ?? availH),
+      1, // never start more zoomed-in than 100 %
+    );
+    const zoom = Math.max(MIN_ZOOM, fitZoom);
+    c.setZoom(zoom);
+    c.setViewportTransform([zoom, 0, 0, zoom, 0, 0]);
+    return zoom;
+  }, []);
+
   const resetZoom = useCallback(() => {
     if (!canvas) return;
-    canvas.setZoom(1);
-    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
-    setZoomLevel(1);
-  }, [canvas]);
+    const zoom = fitToView(canvas);
+    setZoomLevel(zoom);
+  }, [canvas, fitToView]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -266,6 +294,10 @@ export const useCanvas = (config?: CanvasConfig) => {
     // Enable proper event handling
     newCanvas.wrapperEl?.setAttribute('tabindex', '1');
     newCanvas.wrapperEl?.focus();
+
+    // Start at fit-to-view so the canvas is never clipped on first load
+    const initialZoom = fitToView(newCanvas);
+    setZoomLevel(initialZoom);
 
     setCanvas(newCanvas);
 
@@ -308,8 +340,12 @@ export const useCanvas = (config?: CanvasConfig) => {
       console.log('Redo triggered (Ctrl+Y)');
     }
 
-    // Handle delete
+    // Handle delete — skip if a text input/editable element has focus
     if (e.key === 'Delete' || e.key === 'Backspace') {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      const activeObj = canvas.getActiveObject();
+      if (activeObj && (activeObj as any).isEditing) return;
       const activeObjects = canvas.getActiveObjects();
       if (activeObjects.length) {
         activeObjects.forEach(obj => canvas.remove(obj));
@@ -342,6 +378,7 @@ export const useCanvas = (config?: CanvasConfig) => {
     
     // Update layers using ref to avoid dependency on layer
     layerRef.current.updateLayers?.(e);
+    layerRef.current.refreshLayerThumbnailForObject?.(e.target);
     
     // Save to history using ref - only save on add, not on modify
     historyRef.current.saveToHistory(e.target);
@@ -352,6 +389,7 @@ export const useCanvas = (config?: CanvasConfig) => {
     
     // Update layers only - don't save to history here to avoid duplicates
     layerRef.current.updateLayers(e);
+    layerRef.current.refreshLayerThumbnailForObject?.(e.target);
   }, []);
 
   const handleObjectRemoved = useCallback((e: any) => {
@@ -359,6 +397,7 @@ export const useCanvas = (config?: CanvasConfig) => {
     
     // Update layers only - history is managed by undo/redo functions
     layerRef.current.updateLayers(e);
+    layerRef.current.refreshLayerThumbnailForObject?.(e.target);
   }, []);
 
   useEffect(() => {
@@ -521,7 +560,11 @@ export const useCanvas = (config?: CanvasConfig) => {
     }
 
     canvas.requestRenderAll();
-  }, [canvas, toolState.activeToolId, EraseModeOn, toggleEraseMode]);
+  // layer.activeLayer is React state — its reference only changes when setActiveLayer
+  // is called, so adding it here is safe and ensures constraints are re-evaluated
+  // whenever the user switches layers (not just when the tool changes).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvas, toolState.activeToolId, EraseModeOn, toggleEraseMode, layer.activeLayer]);
 
   const clearCanvas = useCallback(() => {
     if (!canvas) return;

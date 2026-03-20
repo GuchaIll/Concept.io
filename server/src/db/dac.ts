@@ -41,10 +41,14 @@ export interface ILayerSnapshot {
     blendMode: string;
     zIndex: number;
     locked?: boolean;
-    
+
     // Delta snapshot support
-    snapshotType?: 'full' | 'reference';  // 'full' = contains all data, 'reference' = pointer to another snapshot
-    referenceSnapshotId?: string;          // When snapshotType='reference', points to snapshot with full data
+    snapshotType?: 'full' | 'reference';
+    referenceSnapshotId?: string;
+
+    /** JPEG data-URL rasterized client-side.  Used by ExportService to produce
+     *  accurate per-layer PNGs without requiring a headless browser. */
+    rasterData?: string;
 }
 
 export interface IVersionData {

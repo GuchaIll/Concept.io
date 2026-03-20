@@ -27,6 +27,7 @@ export enum JobStatus {
   GENERATING = 'generating',
   COMPLETED = 'completed',
   FAILED = 'failed',
+  CANCELLED = 'cancelled',
 }
 
 // Job data interface
@@ -42,6 +43,7 @@ export interface GenerationJobData {
   seed?: number;
   userId: string;
   projectId: string;
+  assetType?: string;
   selectionBounds?: {
     left: number;
     top: number;
@@ -59,10 +61,15 @@ export interface GenerationJobResult {
   imageData?: string;
   error?: string;
   completedAt?: string;
+  userId?: string;
+  projectId?: string;
 }
 
 // In-memory job tracking (for demo - use Redis in production)
 const jobStatusMap = new Map<string, GenerationJobResult>();
+
+// Set of job IDs that have been cancelled — the worker checks this to bail out
+export const cancelledJobs = new Set<string>();
 
 // WebSocket notification callback
 type NotifyCallback = (userId: string, projectId: string, data: any) => void;
@@ -114,6 +121,8 @@ export const addGenerationJob = async (data: Omit<GenerationJobData, 'id' | 'cre
     status: JobStatus.PENDING,
     progress: 0,
     estimatedTime,
+    userId: data.userId,
+    projectId: data.projectId,
   });
 
   // Add to queue with priority (SDXL has lower priority due to longer processing time)
@@ -143,6 +152,7 @@ export const addGenerationJob = async (data: Omit<GenerationJobData, 'id' | 'cre
 
 // Get job status
 export const getJobStatus = (jobId: string): GenerationJobResult | undefined => {
+  if (cancelledJobs.has(jobId)) return undefined;
   return jobStatusMap.get(jobId);
 };
 
@@ -181,6 +191,9 @@ export const updateJobStatus = (
   userId?: string,
   projectId?: string
 ) => {
+  // Ignore updates for cancelled jobs
+  if (cancelledJobs.has(jobId)) return;
+
   const current = jobStatusMap.get(jobId);
   if (current) {
     const updated = { ...current, ...update };
@@ -196,16 +209,50 @@ export const updateJobStatus = (
   }
 };
 
-// Cancel a job
+// Cancel a job (handles both waiting and active jobs)
 export const cancelJob = async (jobId: string): Promise<boolean> => {
+  // Mark as cancelled immediately — the worker poll loop will see this and bail out
+  cancelledJobs.add(jobId);
+
+  const current = jobStatusMap.get(jobId);
+  const userId = current?.userId;
+  const projectId = current?.projectId;
+
+  // Try to remove from queue (works for waiting jobs)
   const job = await diffusionQueue.getJob(jobId);
   if (job) {
-    await job.remove();
-    jobStatusMap.delete(jobId);
-    console.log(`Job ${jobId} cancelled`);
-    return true;
+    const state = await job.getState();
+    if (state === 'waiting' || state === 'delayed') {
+      await job.remove();
+    }
+    // For active jobs, we can't remove them — the worker will check cancelledJobs
   }
-  return false;
+
+  // Update status map so the client gets a definitive CANCELLED event
+  if (current) {
+    const cancelled: GenerationJobResult = {
+      ...current,
+      status: JobStatus.CANCELLED,
+      progress: 0,
+    };
+    jobStatusMap.set(jobId, cancelled);
+
+    // Notify client via WebSocket
+    if (notifyCallback && userId && projectId) {
+      notifyCallback(userId, projectId, {
+        type: 'generation:progress',
+        payload: cancelled,
+      });
+    }
+  }
+
+  // Clean up after a short delay (let the WebSocket message flush)
+  setTimeout(() => {
+    jobStatusMap.delete(jobId);
+  }, 2000);
+
+  console.log(`Job ${jobId} cancelled`);
+  return true;
 };
 
 // Initialize queue event listeners

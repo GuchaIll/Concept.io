@@ -30,12 +30,14 @@ import { LiquifyPanel } from './Workspace/LiquifyPanel';
 import { EffectsPanel } from './Workspace/EffectsPanel';
 import { ToastContainer } from './Toast';
 import { SyncSettings } from './Panel/SyncSettings';
+import { useServiceStatus } from '../hooks/useServiceStatus';
 import * as fabric from 'fabric';
 
 export const FCanvas = () => {
   const { canvasRef, canvas, layer, brushProps, zoomLevel, zoomIn, zoomOut, resetZoom, history, selection, toast } = useCanvasContext();
   const { projectId, userId } = useSession();
   const { dispatch: toolDispatch } = useTool();
+  const serviceStatus = useServiceStatus();
   const [showInvitationModal, setShowInvitationModal] = useState(false);
   const [showAssetVault, setShowAssetVault] = useState(false);
   const [showSyncSettings, setShowSyncSettings] = useState(false);
@@ -722,7 +724,7 @@ export const FCanvas = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt,
-            negativePrompt: 'blurry, bad quality, distorted, ugly, deformed, low resolution, artifacts, noise',
+            negativePrompt: undefined,
             width,
             height,
             steps,
@@ -731,6 +733,7 @@ export const FCanvas = () => {
             userId: userId,
             projectId: projectId,
             selectionBounds: selection.selectionBounds,
+            assetType: assetType || 'foreground',
           }),
         });
 
@@ -1192,6 +1195,7 @@ export const FCanvas = () => {
   const handleCutoutConfirm = useCallback(async (
     maskData: string[],
     settings: Partial<CutoutSettings>,
+    refinementMask?: string,
   ) => {
     if (!pendingCutout) return;
     const { imageData, jobId, bounds: cutoutBounds } = pendingCutout;
@@ -1206,7 +1210,7 @@ export const FCanvas = () => {
 
     if (maskData.length > 0) {
       try {
-        const result = await applyMaskCutout(imageData, maskData, settings);
+        const result = await applyMaskCutout(imageData, maskData, settings, refinementMask);
         if (result.success && result.imageData) {
           finalImageData = result.imageData;
           serverCropBox  = result.cropBox;
@@ -1390,25 +1394,14 @@ export const FCanvas = () => {
 
       {/* ΓöÇΓöÇ AI Cutout Panel (foreground generation only) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
       {pendingCutout && (
-        <div className="fixed inset-0 z-50 flex items-stretch bg-black/80 backdrop-blur-sm">
-          {/* Left: full image context */}
-          <div className="flex-1 flex items-center justify-center p-8 bg-[#0a0e17]">
-            <img
-              src={pendingCutout.imageData}
-              alt="Generated"
-              className="max-w-full max-h-full object-contain rounded-xl shadow-2xl border border-white/10"
-            />
-          </div>
-          {/* Right: cutout panel */}
-          <div className="w-[340px] border-l border-white/10 bg-background-dark overflow-hidden">
-            <CutoutPanel
-              imageData={pendingCutout.imageData}
-              proposals={pendingCutout.proposals}
-              isLoading={false}
-              onConfirm={handleCutoutConfirm}
-              onClose={handleCutoutCancel}
-            />
-          </div>
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
+          <CutoutPanel
+            imageData={pendingCutout.imageData}
+            proposals={pendingCutout.proposals}
+            isLoading={false}
+            onConfirm={handleCutoutConfirm}
+            onClose={handleCutoutCancel}
+          />
         </div>
       )}
 
@@ -1454,7 +1447,7 @@ export const FCanvas = () => {
         onShare={() => setShowInvitationModal(true)}
         onSyncSettings={() => setShowSyncSettings((v) => !v)}
         onExport={handleExport}
-        isLive={true}
+        serviceStatus={serviceStatus}
         collaborators={collaborators}
       />
 
@@ -1540,18 +1533,12 @@ export const FCanvas = () => {
           onClose={() => setShowGenerationQueue(false)}
           onCancelJob={(jobId) => setGenerationJobs(prev => prev.filter(j => j.id !== jobId))}
           onAddToCanvas={(job) => {
-            if (job.imageData && canvas) {
-              const img = new Image();
-              img.onload = () => {
-                const fabricImg = new fabric.Image(img, {
-                  left: 100,
-                  top: 100,
-                  layerId: layer.activeLayer?.id,
-                });
-                canvas.add(fabricImg);
-                canvas.requestRenderAll();
-              };
-              img.src = job.imageData;
+            if (job.imageData) {
+              layer.addAssetLayer(
+                job.id,
+                job.prompt,
+                job.imageData,
+              );
             }
           }}
           onClearCompleted={() => setGenerationJobs(prev => prev.filter(j => j.status !== 'completed' && j.status !== 'failed'))}

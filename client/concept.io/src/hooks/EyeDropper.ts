@@ -19,42 +19,42 @@ export const useEyeDropper = (canvas: fabric.Canvas | null, { onColorPicked }: E
         event.e.preventDefault();
         event.e.stopPropagation();
 
+        // viewportPoint is already in viewport / CSS-pixel space relative to
+        // the canvas element (pan & zoom already applied by fabric).
+        // The lowerCanvasEl buffer is scaled by devicePixelRatio, so we just
+        // multiply to get the buffer-pixel coordinate.
         const pointer = event.viewportPoint;
-        const vpt = canvas.viewportTransform!;
         const ratio = window.devicePixelRatio || 1;
 
-         const actualX = Math.round((pointer.x - vpt[4]) / vpt[0] * ratio);
-        const actualY = Math.round((pointer.y - vpt[5]) / vpt[3] * ratio)
+        const bufferX = Math.round(pointer.x * ratio);
+        const bufferY = Math.round(pointer.y * ratio);
 
-            // Clamp to integer pixel coordinates
-            const clampedX = Math.max(0, Math.min(actualX, canvas.width));
-            const clampedY = Math.max(0, Math.min(actualY, canvas.height));
+        // Clamp to valid buffer range
+        const clampedX = Math.max(0, Math.min(bufferX, canvas.lowerCanvasEl.width - 1));
+        const clampedY = Math.max(0, Math.min(bufferY, canvas.lowerCanvasEl.height - 1));
 
-            canvas.renderAll();
+        canvas.renderAll();
 
-            // Read pixel directly from the lowerCanvasEl
-            const ctx = canvas.lowerCanvasEl.getContext('2d');
-            if (!ctx) return;
+        // Read pixel directly from the lowerCanvasEl
+        const ctx = canvas.lowerCanvasEl.getContext('2d');
+        if (!ctx) return;
 
-            const pixel = ctx.getImageData(clampedX, clampedY, 1, 1).data;
+        const pixel = ctx.getImageData(clampedX, clampedY, 1, 1).data;
 
-            const color: RGBAColor = {
-                r: pixel[0],
-                g: pixel[1],
-                b: pixel[2],
-                a: pixel[3] / 255 // Convert to 0-1 range
-            };
+        const color: RGBAColor = {
+            r: pixel[0],
+            g: pixel[1],
+            b: pixel[2],
+            a: pixel[3] / 255 // Convert to 0-1 range
+        };
             
-            setPickedColor(color);
-            
-            // Notify parent component about the picked color
-            if (onColorPicked) {
-                onColorPicked(color);
-            }
-            if (onColorPicked) {
-                console.log('EyeDropper picked color:', color);
-                onColorPicked(color);
-            }
+        setPickedColor(color);
+
+        // Notify parent component about the picked color
+        if (onColorPicked) {
+            console.log('EyeDropper picked color:', color);
+            onColorPicked(color);
+        }
        
     }, [canvas, onColorPicked]);
 

@@ -62,3 +62,16 @@ export interface SyncStatusEvent {
   status: SyncStatus;
   message?: string;
 }
+
+/** Node in the folder tree returned by GET /targets/:id/files */
+export interface SyncFileNode {
+  name: string;
+  /** Relative path from the sync target's base folder */
+  path: string;
+  type: 'file' | 'folder';
+  /** ISO timestamp or ms epoch of last modification */
+  modifiedAt?: number;
+  /** Snapshot ID this file was last synced from */
+  linkedSnapshotId?: string;
+  children?: SyncFileNode[];
+}

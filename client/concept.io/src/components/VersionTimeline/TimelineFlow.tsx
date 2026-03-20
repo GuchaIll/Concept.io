@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ReactFlow,
   Controls,
@@ -13,6 +13,28 @@ import {
 import type { Node, Edge, Connection, NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { ISnapshot, IBranch } from '../../types/version.interface';
+
+interface SnapshotNodeData {
+  snapshot: ISnapshot;
+  branch?: IBranch;
+  isActive: boolean;
+  isHead: boolean;
+  onClick?: (id: string) => void;
+  onRestore?: (id: string) => void;
+  [key: string]: unknown;
+}
+
+interface GhostNodeData {
+  onClick: () => void;
+  [key: string]: unknown;
+}
+
+interface BranchNodeData {
+  snapshot: ISnapshot;
+  branch?: IBranch;
+  onClick?: (id: string) => void;
+  [key: string]: unknown;
+}
 
 // Helper function for relative time
 const formatRelativeTime = (timestamp: number): string => {
@@ -29,7 +51,7 @@ const formatRelativeTime = (timestamp: number): string => {
 
 // Custom Snapshot Node
 const SnapshotNode = ({ data, selected }: NodeProps) => {
-  const { snapshot, branch, isActive, isHead, onClick, onRestore } = data;
+  const { snapshot, branch, isActive, isHead, onClick, onRestore } = data as unknown as SnapshotNodeData;
   
   return (
     <div className="relative group">
@@ -95,20 +117,23 @@ const SnapshotNode = ({ data, selected }: NodeProps) => {
 };
 
 // Ghost Node for new commits
-const GhostNode = ({ data }: NodeProps) => (
+const GhostNode = ({ data }: NodeProps) => {
+  const typedData = data as unknown as GhostNodeData;
+  return (
   <div className="group">
     <Handle type="target" position={Position.Left} className="!bg-primary/40 !w-2 !h-2" />
-    <div onClick={data.onClick}
+    <div onClick={typedData.onClick as unknown as React.MouseEventHandler<HTMLDivElement>}
       className="w-20 h-20 rounded-xl border-2 border-dashed border-[#2b6cee]/40 flex items-center justify-center bg-[#2b6cee]/5 hover:bg-[#2b6cee]/10 hover:border-[#2b6cee]/60 cursor-pointer transition-all">
       <span className="material-icons text-[#2b6cee]/40 text-2xl group-hover:text-[#2b6cee]/60">add_circle_outline</span>
     </div>
     <p className="text-[10px] text-white/40 italic mt-2 text-center w-20">New Commit</p>
   </div>
-);
+  );
+};
 
 // Branch Node (smaller)
 const BranchNode = ({ data }: NodeProps) => {
-  const { snapshot, branch, onClick } = data;
+  const { snapshot, branch, onClick } = data as unknown as BranchNodeData;
   return (
     <div className="flex items-center gap-2 group">
       <Handle type="target" position={Position.Top} className="!w-2 !h-2" style={{ background: branch?.color }} />
@@ -155,7 +180,7 @@ export const TimelineFlow = ({
   branches, snapshots, currentBranchId, currentSnapshotId, selectedSnapshotId,
   isLoading, projectName = 'Untitled Project',
   onCreateSnapshot, onRestoreSnapshot, onSelectSnapshot, onCreateBranch,
-  onSwitchBranch, onDeleteBranch, onMergeBranch, onClose,
+  onSwitchBranch, onDeleteBranch: _onDeleteBranch, onMergeBranch, onClose,
 }: TimelineFlowProps) => {
   const [showCommitModal, setShowCommitModal] = useState(false);
   const [commitName, setCommitName] = useState('');
@@ -274,7 +299,7 @@ export const TimelineFlow = ({
 
   const onConnect = useCallback((params: Connection) => setEdges((eds) => addEdge({ ...params, type: 'smoothstep' }, eds)), [setEdges]);
   
-  const onPaneContextMenu = useCallback((event: React.MouseEvent) => {
+  const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
     event.preventDefault();
     setContextMenu({ x: event.clientX, y: event.clientY });
   }, []);

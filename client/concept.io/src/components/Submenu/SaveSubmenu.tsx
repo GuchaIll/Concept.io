@@ -28,7 +28,6 @@ const SaveSubmenu = () => {
     if(!canvas) return;
     console.log("Snapshot saved");
     const canvasJson = canvas.toJSON();
-    const canvasObject = canvas.toObject();
     localStorage.setItem('canvasData', JSON.stringify(canvasJson));
   };
 

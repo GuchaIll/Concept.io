@@ -6,7 +6,7 @@ import type {
   ISyncTarget,
   ISyncLog,
   CreateSyncTargetPayload,
-  SyncTargetType,
+  SyncFileNode,
 } from '../../../../common/sync.interface';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -109,4 +109,91 @@ export async function getSyncLogs(
   const json = await res.json();
   if (!json.success) throw new Error(json.error ?? 'Failed to fetch sync logs');
   return json.data;
+}
+
+// ── File Browser ───────────────────────────────────────
+
+export async function listTargetFiles(
+  projectId: string,
+  targetId: string,
+): Promise<SyncFileNode[]> {
+  const res = await fetch(url(projectId, `/targets/${targetId}/files`));
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to list files');
+  return json.data;
+}
+
+export async function deleteTargetFile(
+  projectId: string,
+  targetId: string,
+  filePath: string,
+): Promise<void> {
+  const res = await fetch(url(projectId, `/targets/${targetId}/files`), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to delete file');
+}
+
+export async function linkTargetFile(
+  projectId: string,
+  targetId: string,
+  snapshotId: string,
+  filePath?: string,
+  fileName?: string,
+): Promise<ISyncLog> {
+  const res = await fetch(url(projectId, `/targets/${targetId}/files/link`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ snapshotId, filePath, fileName }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to link file');
+  return json.data;
+}
+
+export async function createTargetFolder(
+  projectId: string,
+  targetId: string,
+  dirPath: string,
+): Promise<void> {
+  const res = await fetch(url(projectId, `/targets/${targetId}/files/mkdir`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dirPath }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to create folder');
+}
+
+export async function moveTargetFile(
+  projectId: string,
+  targetId: string,
+  sourcePath: string,
+  destPath: string,
+): Promise<{ newPath: string }> {
+  const res = await fetch(url(projectId, `/targets/${targetId}/files/move`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourcePath, destPath }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to move file');
+  return json.data;
+}
+
+export async function renameFileAcrossTargets(
+  projectId: string,
+  oldPath: string,
+  newName: string,
+): Promise<void> {
+  const res = await fetch(url(projectId, '/files/rename'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ oldPath, newName }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error ?? 'Failed to rename');
 }

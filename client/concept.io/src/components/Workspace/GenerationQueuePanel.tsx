@@ -2,7 +2,7 @@
  * Generation Queue Panel - Shows generation jobs and their status
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 
 // Job status types
 export type JobStatus = 'pending' | 'loading_model' | 'generating' | 'completed' | 'failed';
@@ -128,126 +128,147 @@ const JobCard: React.FC<{
   );
 };
 
-export const GenerationQueuePanel: React.FC<GenerationQueuePanelProps> = ({ 
+export const GenerationQueuePanel: React.FC<GenerationQueuePanelProps> = ({
   jobs = [],
   onClose,
   onCancelJob,
   onAddToCanvas,
   onClearCompleted,
 }) => {
+  const [minimized, setMinimized] = useState(false);
+
   const isGenerating = jobs.some(j => j.status === 'generating' || j.status === 'loading_model');
 
-  const activeJobs = jobs.filter(j => 
-    j.status === 'pending' || 
-    j.status === 'loading_model' || 
+  const activeJobs = jobs.filter(j =>
+    j.status === 'pending' ||
+    j.status === 'loading_model' ||
     j.status === 'generating'
   );
-  
-  const completedJobs = jobs.filter(j => 
-    j.status === 'completed' || 
+
+  const completedJobs = jobs.filter(j =>
+    j.status === 'completed' ||
     j.status === 'failed'
   );
 
   return (
     <div className="absolute bottom-24 right-6 w-80 z-40">
-      <div 
+      <div
         className="rounded-2xl overflow-hidden shadow-2xl"
-        style={{ 
+        style={{
           background: 'rgba(10, 12, 20, 0.95)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(255,255,255,0.1)'
         }}
       >
         {/* Header */}
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+        <div className="px-4 py-3 flex items-center justify-between border-b border-white/10">
           <div className="flex items-center gap-2">
-            <span className="material-icons-round text-primary">auto_awesome</span>
+            <span className="material-icons-round text-base text-primary">auto_awesome</span>
             <h3 className="text-sm font-bold text-white">Generation Queue</h3>
             {isGenerating && (
               <span className="w-2 h-2 bg-primary rounded-full animate-pulse" />
             )}
+            {minimized && jobs.length > 0 && (
+              <span className="text-[10px] font-bold text-white/40 border border-white/15 rounded-full px-1.5 py-0.5">
+                {activeJobs.length > 0 ? `${activeJobs.length} active` : `${completedJobs.length} done`}
+              </span>
+            )}
           </div>
-          <button 
-            onClick={onClose}
-            className="p-1 text-white/30 hover:text-white transition-colors"
-          >
-            <span className="material-icons-round text-lg">close</span>
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="max-h-[400px] overflow-y-auto">
-          {jobs.length === 0 ? (
-            <div className="p-8 text-center">
-              <span className="material-icons-round text-4xl text-white/20 mb-2">image</span>
-              <p className="text-sm text-white/40">No generation jobs</p>
-              <p className="text-xs text-white/30 mt-1">
-                Select an area and type a prompt to generate
-              </p>
-            </div>
-          ) : (
-            <div className="p-3 space-y-3">
-              {/* Active Jobs */}
-              {activeJobs.length > 0 && (
-                <div>
-                  <h4 className="text-[10px] font-bold text-white/50 uppercase tracking-wider mb-2">
-                    Active ({activeJobs.length})
-                  </h4>
-                  <div className="space-y-2">
-                    {activeJobs.map(job => (
-                      <JobCard 
-                        key={job.id} 
-                        job={job}
-                        onCancel={() => onCancelJob?.(job.id)}
-                        onAddToCanvas={() => onAddToCanvas?.(job)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Completed Jobs */}
-              {completedJobs.length > 0 && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-[10px] font-bold text-white/50 uppercase tracking-wider">
-                      Completed ({completedJobs.length})
-                    </h4>
-                    <button
-                      onClick={onClearCompleted}
-                      className="text-[10px] text-white/30 hover:text-white transition-colors"
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                  <div className="space-y-2">
-                    {completedJobs.map(job => (
-                      <JobCard 
-                        key={job.id} 
-                        job={job}
-                        onCancel={() => onCancelJob?.(job.id)}
-                        onAddToCanvas={() => onAddToCanvas?.(job)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer Stats */}
-        <div className="p-3 border-t border-white/10 bg-white/[0.02]">
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-white/40">
-              {activeJobs.length} active • {completedJobs.length} completed
-            </span>
-            <span className="text-primary flex items-center gap-1">
-              <span className="material-icons-round text-xs">memory</span>
-              GPU Ready
-            </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setMinimized(v => !v)}
+              className="p-1 text-white/30 hover:text-white transition-colors"
+              title={minimized ? 'Expand' : 'Minimize'}
+            >
+              <span className="material-icons-round text-lg">
+                {minimized ? 'expand_less' : 'expand_more'}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 text-white/30 hover:text-white transition-colors"
+              title="Close"
+            >
+              <span className="material-icons-round text-lg">close</span>
+            </button>
           </div>
         </div>
+
+        {/* Content — hidden when minimized */}
+        {!minimized && (
+          <>
+            <div className="max-h-[400px] overflow-y-auto">
+              {jobs.length === 0 ? (
+                <div className="p-8 text-center">
+                  <span className="material-icons-round text-4xl text-white/20 mb-2">image</span>
+                  <p className="text-sm text-white/40">No generation jobs</p>
+                  <p className="text-xs text-white/30 mt-1">
+                    Select an area and type a prompt to generate
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 space-y-3">
+                  {activeJobs.length > 0 && (
+                    <div>
+                      <h4 className="text-[10px] font-bold text-white/50 uppercase tracking-wider mb-2">
+                        Active ({activeJobs.length})
+                      </h4>
+                      <div className="space-y-2">
+                        {activeJobs.map(job => (
+                          <JobCard
+                            key={job.id}
+                            job={job}
+                            onCancel={() => onCancelJob?.(job.id)}
+                            onAddToCanvas={() => onAddToCanvas?.(job)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {completedJobs.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-[10px] font-bold text-white/50 uppercase tracking-wider">
+                          Completed ({completedJobs.length})
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={onClearCompleted}
+                          className="text-[10px] text-white/30 hover:text-white transition-colors"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {completedJobs.map(job => (
+                          <JobCard
+                            key={job.id}
+                            job={job}
+                            onCancel={() => onCancelJob?.(job.id)}
+                            onAddToCanvas={() => onAddToCanvas?.(job)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-2.5 border-t border-white/10 bg-white/[0.02] flex items-center justify-between text-[10px]">
+              <span className="text-white/40">
+                {activeJobs.length} active · {completedJobs.length} completed
+              </span>
+              <span className="text-primary flex items-center gap-1">
+                <span className="material-icons-round text-xs">memory</span>
+                GPU Ready
+              </span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

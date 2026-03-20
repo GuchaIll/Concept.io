@@ -9,3 +9,5 @@ export { BrushEditor } from './BrushEditor';
 export { ColorPalette } from './ColorPalette';
 export { SelectToolPanel } from './SelectToolPanel';
 export { SelectionSmartTag } from './SelectionSmartTag';
+export { LiquifyPanel } from './LiquifyPanel';
+export { EffectsPanel } from './EffectsPanel';

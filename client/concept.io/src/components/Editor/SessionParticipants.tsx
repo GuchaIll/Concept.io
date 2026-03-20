@@ -3,7 +3,7 @@ import ParticipantList from './ParticipantList';
 
 const SessionParticipants = () => {
 
-    const [showParticipantsList, setShowParticipantsList] = useState(false);
+    const [showParticipantsList, _setShowParticipantsList] = useState(false);
 
     const participants = [
         { id: 1, name: 'Alice', email: 'alice@example.com', profilePic: '/avatars/cat.png' },
