@@ -37,7 +37,6 @@ const railTools: ToolRailItem[] = [
   { id: 'select', icon: 'highlight_alt', label: 'Select', hasSubmenu: true, submenuType: 'select' },
   { id: 'brush', icon: 'brush', label: 'Brush', hasSubmenu: true, submenuType: 'brush' },
   { id: 'eraser', icon: 'auto_fix_normal', label: 'Eraser' },
-  { id: 'generate', icon: 'auto_fix_high', label: 'Diffusion Cutout' },
   { id: 'Eyedropper', icon: 'colorize', label: 'Eyedropper' },
   { id: 'asset', icon: 'folder_open', label: 'Asset Vault' },
 ];

@@ -191,8 +191,18 @@ const SortableLayerItem = ({ layer, isActive, onSelect, onToggleVisibility, onTy
           tabIndex={0}
           className={`w-10 h-10 rounded-lg bg-white/5 overflow-hidden thin-border cursor-pointer transition-all flex-shrink-0 ${isActive ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-white/20'}`}
         >
-          <div className="w-full h-full flex items-center justify-center text-white/20">
-            <span className="material-icons-round text-lg">layers</span>
+          <div className="w-full h-full checkerboard-sm">
+            {layer.thumbnail ? (
+              <img
+                src={layer.thumbnail}
+                alt={`${layer.name} thumbnail`}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-white/20">
+                <span className="material-icons-round text-lg">layers</span>
+              </div>
+            )}
           </div>
         </div>
 

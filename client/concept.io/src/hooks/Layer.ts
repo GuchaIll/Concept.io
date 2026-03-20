@@ -24,7 +24,7 @@ export const blendModes = {
 
 export type BlendMode = typeof blendModes[keyof typeof blendModes];
 
-const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
+export const blendModeMap: Record<BlendMode, GlobalCompositeOperation> = {
         normal: 'source-over',
         multiply: 'multiply',
         screen: 'screen',
@@ -65,6 +65,9 @@ export interface Layer {
   locked?: boolean;
   blendMode?: BlendMode;
   CachedBitmap?: fabric.FabricImage;
+  isDirty?: boolean;
+  assetId?: string;
+  thumbnail?: string;
 }
 
 export const useLayers = (canvas: fabric.Canvas | null) => {
@@ -82,6 +85,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
   const [activeLayer, setActiveLayer] = useState<Layer>(layers[0]);
   const [wsService, setWsService] = useState<any>(null);
   const [switchingLayer, setSwitchingLayer] = useState<boolean>(false);
+  const thumbnailTimersRef = useRef<Record<string, number>>({});
   
   // Use a ref to always have the current active layer for event handlers
   const activeLayerRef = useRef<Layer>(activeLayer);
@@ -102,6 +106,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     layersRef.current = layers;
     console.log('Layers ref updated:', layers.map(l => `${l.name}(z:${l.zIndex})`));
   }, [layers]);
+
 
   useEffect(() => {
     if (canvas && !wsService)
@@ -180,7 +185,10 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     };
 
     setLayers(prev => [...prev, newLayer]);
-    setActiveLayer(newLayer);
+    // Do NOT change the active layer — the user's current paint layer should
+    // remain active so that brush strokes after placing an asset still land
+    // on the correct paint layer.  The asset image is tagged with its own
+    // layerId below so it belongs to the right layer in the panel.
 
     try {
       // Load image — crossOrigin 'anonymous' is fine for data-URLs and
@@ -265,6 +273,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       obj.visible = visible;
     });
     canvas.requestRenderAll();
+    scheduleLayerThumbnail(layerId);
   };
 
   const updateLayerBlendMode = (layerId: string, blendMode: string) => {
@@ -323,6 +332,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     });
 
     canvas.renderAll();
+    scheduleLayerThumbnail(layerId);
   };
 
     const addObjectToLayer = (object : fabric.FabricObject , layerID : string) => {
@@ -477,13 +487,16 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
       }, 50);
     };
 
-    const toggleLayerLock = (layerId : string) =>
-    {
-      setLayers(
-        prev => prev.map(layer =>
+  const toggleLayerLock = (layerId : string) =>
+  {
+      setLayers(prev =>
+        prev.map(layer =>
           layer.id === layerId ? { ...layer, locked: !layer.locked } : layer
         )
-      )
+      );
+      setActiveLayer(prev =>
+        prev.id === layerId ? { ...prev, locked: !prev.locked } : prev
+      );
     }
 
   // Update the z-index of all objects based on layer order - call this manually when needed
@@ -494,7 +507,7 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     if (allObjects.length === 0) return;
     
     // Sort objects by their layer's zIndex
-    layers.forEach((layer, layerIndex) => {
+    layers.forEach((layer, _layerIndex) => {
       const layerObjects = allObjects.filter(obj => obj.layerId === layer.id);
       layerObjects.forEach(obj => {
         // Set visibility based on layer visibility
@@ -508,6 +521,86 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     
     canvas.requestRenderAll();
   }, [canvas, layers]);
+
+  const buildLayerThumbnail = useCallback(async (layerId: string) => {
+    if (!canvas) return;
+
+    const layerObjects = canvas.getObjects().filter(obj => obj.layerId === layerId);
+    if (layerObjects.length === 0) {
+      setLayers(prev => prev.map(layer =>
+        layer.id === layerId ? { ...layer, thumbnail: undefined } : layer
+      ));
+      return;
+    }
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    layerObjects.forEach(obj => {
+      const bounds = obj.getBoundingRect(true, true);
+      minX = Math.min(minX, bounds.left);
+      minY = Math.min(minY, bounds.top);
+      maxX = Math.max(maxX, bounds.left + bounds.width);
+      maxY = Math.max(maxY, bounds.top + bounds.height);
+    });
+
+    if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+      return;
+    }
+
+    const padding = 2;
+    const width = Math.max(1, Math.ceil(maxX - minX + padding * 2));
+    const height = Math.max(1, Math.ceil(maxY - minY + padding * 2));
+
+    const tempEl = document.createElement('canvas');
+    tempEl.width = width;
+    tempEl.height = height;
+    const tempCanvas = new fabric.StaticCanvas(tempEl, { backgroundColor: 'transparent' });
+
+    const clones = await Promise.all(layerObjects.map(obj =>
+      obj.clone(['id', 'layerId', 'baseOpacity']) as Promise<fabric.FabricObject>
+    ));
+
+    clones.forEach(clone => {
+      const left = clone.left ?? 0;
+      const top = clone.top ?? 0;
+      clone.set({
+        left: left - minX + padding,
+        top: top - minY + padding,
+        selectable: false,
+        evented: false,
+        visible: true,
+      });
+      tempCanvas.add(clone);
+    });
+
+    tempCanvas.requestRenderAll();
+    const dataUrl = tempCanvas.toDataURL({ format: 'png', multiplier: 1 });
+    tempCanvas.dispose();
+
+    setLayers(prev => prev.map(layer =>
+      layer.id === layerId ? { ...layer, thumbnail: dataUrl } : layer
+    ));
+  }, [canvas]);
+
+  const scheduleLayerThumbnail = useCallback((layerId: string) => {
+    if (!canvas) return;
+    const existing = thumbnailTimersRef.current[layerId];
+    if (existing) {
+      window.clearTimeout(existing);
+    }
+    thumbnailTimersRef.current[layerId] = window.setTimeout(() => {
+      delete thumbnailTimersRef.current[layerId];
+      buildLayerThumbnail(layerId);
+    }, 120);
+  }, [canvas, buildLayerThumbnail]);
+
+  const refreshLayerThumbnail = useCallback((layerId: string) => {
+    scheduleLayerThumbnail(layerId);
+  }, [scheduleLayerThumbnail]);
+
+  const refreshLayerThumbnailForObject = useCallback((object: fabric.FabricObject) => {
+    const layerId = object.layerId ?? activeLayerRef.current.id;
+    scheduleLayerThumbnail(layerId);
+  }, [scheduleLayerThumbnail]);
     
   const switchLayer = (newLayer: Layer) => {
     // Don't switch if already on this layer or currently switching
@@ -849,6 +942,9 @@ export const useLayers = (canvas: fabric.Canvas | null) => {
     updateLayerBlendMode,
     switchLayer,
     reorderLayers,
-    restoreLayersFromSnapshot
+    restoreLayersFromSnapshot,
+    updateObjectZIndices,
+    refreshLayerThumbnail,
+    refreshLayerThumbnailForObject
   }
 };

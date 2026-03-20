@@ -144,64 +144,89 @@ export const useSelection = (canvas: fabric.Canvas | null, isToolActive: boolean
       // Keep Fabric's built-in selection enabled for object manipulation
       canvas.selection = true;
       
+      const DRAG_THRESHOLD = 8; // px — must move this far before box-draw starts
+      let isPendingDrag = false; // mousedown recorded, waiting for threshold
       let isDrawing = false;
+      // Local copy of start point so clearSelectionVisuals() (which nulls the ref) can't break us
+      let startX = 0;
+      let startY = 0;
 
       const handleMouseDown = (opt: any) => {
         if (state.mode !== 'box' || !isToolActive) return;
 
-        // Check if clicking on an existing object - if so, let Fabric handle it
-        const target = canvas.findTarget(opt.e);
-        if (target && target.selectable) {
-          // User clicked on a selectable object, don't draw selection box
-          // Let Fabric's built-in selection/transformation handle it
-          return;
-        }
-
-        // Clear previous selection visuals (but not objects)
-        clearSelectionVisuals();
-        canvas.discardActiveObject();
-        
-        isDrawing = true;
+        // Always record the start point regardless of what is under the cursor.
+        // Box drawing will begin in handleMouseMove once the drag threshold is exceeded.
         const pointer = canvas.getScenePoint(opt.e);
-        boxStartPoint.current = { x: pointer.x, y: pointer.y };
-        
-        // Create selection rectangle
-        selectionRect.current = new fabric.Rect({
-          left: pointer.x,
-          top: pointer.y,
-          width: 0,
-          height: 0,
-          fill: 'rgba(43, 108, 238, 0.1)',
-          stroke: '#2b6cee',
-          strokeWidth: 1,
-          strokeDashArray: [5, 5],
-          selectable: false,
-          evented: false,
-        });
-        canvas.add(selectionRect.current);
+        startX = pointer.x;
+        startY = pointer.y;
+        boxStartPoint.current = { x: startX, y: startY };
+        isPendingDrag = true;
+        isDrawing = false;
       };
 
       const handleMouseMove = (opt: any) => {
-        if (!isDrawing || !boxStartPoint.current || !selectionRect.current) return;
-        
+        if (!isPendingDrag) return;
+
         const pointer = canvas.getScenePoint(opt.e);
-        const left = Math.min(boxStartPoint.current.x, pointer.x);
-        const top = Math.min(boxStartPoint.current.y, pointer.y);
-        const width = Math.abs(pointer.x - boxStartPoint.current.x);
-        const height = Math.abs(pointer.y - boxStartPoint.current.y);
-        
+        const dx = pointer.x - startX;
+        const dy = pointer.y - startY;
+
+        if (!isDrawing) {
+          // Check whether we've crossed the drag threshold
+          if (Math.sqrt(dx * dx + dy * dy) < DRAG_THRESHOLD) return;
+
+          // Threshold crossed — start box selection unconditionally.
+          // Remove any old selection rect manually (don't call clearSelectionVisuals
+          // as it nulls boxStartPoint.current and resets state mid-drag).
+          if (selectionRect.current) {
+            canvas.remove(selectionRect.current);
+            selectionRect.current = null;
+          }
+          canvas.discardActiveObject();
+          isDrawing = true;
+
+          selectionRect.current = new fabric.Rect({
+            left: startX,
+            top: startY,
+            width: 0,
+            height: 0,
+            fill: 'rgba(43, 108, 238, 0.1)',
+            stroke: '#2b6cee',
+            strokeWidth: 1,
+            strokeDashArray: [5, 5],
+            selectable: false,
+            evented: false,
+          });
+          canvas.add(selectionRect.current);
+        }
+
+        if (!selectionRect.current) return;
         selectionRect.current.set({
-          left,
-          top,
-          width,
-          height,
+          left: Math.min(startX, pointer.x),
+          top: Math.min(startY, pointer.y),
+          width: Math.abs(dx),
+          height: Math.abs(dy),
         });
         canvas.requestRenderAll();
       };
 
-      const handleMouseUp = () => {
-        if (!isDrawing || !selectionRect.current) return;
-        
+      const handleMouseUp = (opt: any) => {
+        isPendingDrag = false;
+
+        if (!isDrawing) {
+          // Threshold never crossed — treat as a plain click.
+          // Re-select the object under cursor so Fabric's normal click-select works.
+          if (opt?.e) {
+            const target = canvas.findTarget(opt.e);
+            if (target && target.selectable) {
+              canvas.setActiveObject(target);
+              canvas.requestRenderAll();
+            }
+          }
+          return;
+        }
+
+        if (!selectionRect.current) return;
         isDrawing = false;
         
         const bounds = {
