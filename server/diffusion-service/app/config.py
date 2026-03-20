@@ -70,6 +70,13 @@ try:
     if CUDA_AVAILABLE:
         print(f"  - GPU: {torch.cuda.get_device_name(0)}")
         print(f"  - CUDA version: {torch.version.cuda}")
+        # SDPA backend diagnostics — helps debug slow SDXL inference
+        flash_ok = torch.backends.cuda.flash_sdp_enabled()
+        mem_eff_ok = torch.backends.cuda.mem_efficient_sdp_enabled()
+        math_ok = torch.backends.cuda.math_sdp_enabled()
+        print(f"  - SDPA backends: flash={flash_ok}, mem_efficient={mem_eff_ok}, math={math_ok}")
+        if not flash_ok and not mem_eff_ok:
+            print("  ⚠  No fast SDPA backend available! SDXL will be very slow.")
     else:
         print("  - Running on CPU (will be slower)")
     print("=" * 50)
@@ -184,14 +191,81 @@ def get_sam_model():
     return _sam_instance
 
 
+def offload_sam_to_cpu() -> bool:
+    """
+    Move SAM model to CPU and free its VRAM.
+    
+    Called before loading SDXL to avoid memory pressure.
+    Returns True if SAM was offloaded, False if it wasn't loaded.
+    """
+    global _sam_instance
+    if _sam_instance is None:
+        return False
+    
+    sam, _predictor, _mask_generator = _sam_instance
+    try:
+        sam.to("cpu")
+        torch.cuda.empty_cache()
+        print("[SAM] Offloaded to CPU to free VRAM for SDXL")
+        return True
+    except Exception as e:
+        print(f"[SAM] Warning: failed to offload: {e}")
+        return False
+
+
+def reload_sam_to_gpu() -> bool:
+    """
+    Move SAM model back to GPU after SDXL is done.
+    
+    Called when cutout operations are needed again.
+    Returns True if SAM was reloaded, False if it wasn't loaded.
+    """
+    global _sam_instance
+    if _sam_instance is None:
+        return False
+    
+    sam, _predictor, _mask_generator = _sam_instance
+    try:
+        sam.to(DEVICE)
+        print(f"[SAM] Reloaded to {DEVICE}")
+        return True
+    except Exception as e:
+        print(f"[SAM] Warning: failed to reload: {e}")
+        return False
+
+
 # ── Model IDs ────────────────────────────────────────────────────
 SD15_MODEL_ID = "GraydientPlatformAPI/realcartoon-real17"
 SDXL_MODEL_ID = "stabilityai/stable-diffusion-xl-base-1.0"
 
-# ── Phase 1 editing model paths (relative to diffusion-service/) ──
-CONTROLNET_UNION_PATH = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "models", "controlnet-union-sdxl")
+# ── Individual ControlNet model IDs ──────────────────────────────
+# Individual models (300-700 MB each) instead of ControlNet-Union (~1.5 GB).
+# Union requires SDXL UNet + ControlNet co-resident → ~7-8 GB VRAM (OOM on
+# 8 GB cards).  Individual models bring peak VRAM to ~3.5-4 GB because the
+# ControlNet portion is 2-5× smaller.  The pipeline keeps one loaded at a
+# time; swapping .controlnet takes ~10-20s vs a full 5-minute cold start.
+# Override any entry with an env var (e.g. CONTROLNET_DEPTH_MODEL_ID=...).
+CONTROLNET_DEPTH_MODEL_ID: str = os.environ.get(
+    "CONTROLNET_DEPTH_MODEL_ID",
+    "diffusers/controlnet-depth-sdxl-1.0-small",   # 315 MB distilled
 )
+CONTROLNET_CANNY_MODEL_ID: str = os.environ.get(
+    "CONTROLNET_CANNY_MODEL_ID",
+    "diffusers/controlnet-canny-sdxl-1.0",          # 315 MB
+)
+CONTROLNET_POSE_MODEL_ID: str = os.environ.get(
+    "CONTROLNET_POSE_MODEL_ID",
+    "xinsir/controlnet-openpose-sdxl-1.0",          # 700 MB, weights-only (no bundled UNet)
+)
+CONTROLNET_TILE_MODEL_ID: str = os.environ.get(
+    "CONTROLNET_TILE_MODEL_ID",
+    "xinsir/controlnet-tile-sdxl-1.0",              # 700 MB
+)
+CONTROLNET_SOFTEDGE_MODEL_ID: str = os.environ.get(
+    "CONTROLNET_SOFTEDGE_MODEL_ID",
+    "SargeZT/controlnet-sd-xl-1.0-softedge-dexined",  # 700 MB
+)
+
 IP_ADAPTER_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "models", "ip-adapter")
 )
