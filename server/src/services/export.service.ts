@@ -84,6 +84,12 @@ async function renderLayerToPng(
   height: number,
 ): Promise<Buffer> {
   try {
+    // Prefer client-supplied rasterData — accurate JPEG capture of all object
+    // types (paths, text, rects) at display resolution; just convert to PNG.
+    if (layer.rasterData && layer.rasterData.length > 100) {
+      return sharp(base64ToBuffer(layer.rasterData)).png().toBuffer();
+    }
+
     const objects = JSON.parse(layer.objects || '[]');
 
     if (!objects.length) {
@@ -169,6 +175,8 @@ export async function exportSnapshot(snapshotId: string): Promise<ExportResult> 
   const projectName = project?.name || 'unknown';
   const width = project?.canvasWidth || DEFAULT_WIDTH;
   const height = project?.canvasHeight || DEFAULT_HEIGHT;
+  let compositeWidth = width;
+  let compositeHeight = height;
 
   // Sort layers by zIndex ascending for correct compositing order
   const sortedLayers = [...snapshot.layers].sort((a, b) => a.zIndex - b.zIndex);
@@ -220,11 +228,13 @@ export async function exportSnapshot(snapshotId: string): Promise<ExportResult> 
   if (snapshot.thumbnail && snapshot.thumbnail.length > 100) {
     try {
       const thumbBuffer = base64ToBuffer(snapshot.thumbnail);
-      // Resize thumbnail to full canvas dimensions
-      compositeBuffer = await sharp(thumbBuffer)
-        .resize(width, height, { fit: 'fill' })
-        .png()
-        .toBuffer();
+      const meta = await sharp(thumbBuffer).metadata();
+      compositeBuffer = await sharp(thumbBuffer).png().toBuffer();
+      // Use the thumbnail's natural dimensions so we don't upscale/distort
+      if (meta.width && meta.height) {
+        compositeWidth = meta.width;
+        compositeHeight = meta.height;
+      }
     } catch {
       // Keep the composited version
     }
@@ -258,8 +268,8 @@ export async function exportSnapshot(snapshotId: string): Promise<ExportResult> 
     projectName,
     layers: exportedLayers,
     composite: compositeBuffer,
-    compositeWidth: width,
-    compositeHeight: height,
+    compositeWidth,
+    compositeHeight,
     metadata,
   };
 }
